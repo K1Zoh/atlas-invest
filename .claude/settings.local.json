@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//Users/test/K1Zoh/**)",
+      "Bash(python -m py_compile frontend/dashboard.py)",
+      "Bash(python3 -m py_compile frontend/dashboard.py)",
+      "Bash(python3 -m py_compile /Users/test/K1Zoh/stock-market-analyzer/frontend/dashboard.py)",
+      "Bash(python3 -m py_compile /Users/test/K1Zoh/stock-market-analyzer/backend/db.py)",
+      "Bash(python3 -m py_compile /Users/test/K1Zoh/stock-market-analyzer/backend/analytics.py)",
+      "Bash(python3 -m py_compile /Users/test/K1Zoh/stock-market-analyzer/backend/collectors.py)",
+      "Bash(python3 -m py_compile /Users/test/K1Zoh/stock-market-analyzer/backend/analyzers/prompt.py)",
+      "Bash(python3 -m py_compile /Users/test/K1Zoh/stock-market-analyzer/backend/analyzers/gemini.py)",
+      "Bash(python3 -m py_compile /Users/test/K1Zoh/stock-market-analyzer/backend/importer.py)",
+      "Bash(python3 -m py_compile /Users/test/K1Zoh/stock-market-analyzer/import_my_data.py)",
+      "Bash(gh pr *)",
+      "Bash(git -C /Users/test/K1Zoh/stock-market-analyzer remote -v)",
+      "Bash(python3 -m py_compile backend/db.py backend/analytics.py backend/importer.py backend/collectors.py)",
+      "Bash(python3 -m py_compile backend/analyzers/gemini.py backend/analyzers/groq_client.py backend/analyzers/runner.py backend/analyzers/prompt.py)",
+      "Bash(python3 -m py_compile backend/analyzers/prompt.py)",
+      "Bash(gh auth *)",
+      "Bash(git init *)",
+      "Bash(git add *)"
+    ]
+  }
+}
