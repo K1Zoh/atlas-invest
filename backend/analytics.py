@@ -158,59 +158,212 @@ def compute_scoreboard(suggestions: list[dict]) -> pd.DataFrame:
     return df.reset_index(drop=True)
 
 
+# ── AI top investment picks ────────────────────────────────────────────────────
+
+def compute_ai_top_picks(suggestions: list[dict]) -> pd.DataFrame:
+    """
+    Agrège les portefeuilles virtuels de toutes les suggestions IA.
+    Retourne un DataFrame avec ticker, nom, poids moyen, nb modèles, conviction, rationale.
+    """
+    import json as _json
+    from collections import defaultdict
+
+    agg: dict[str, dict] = defaultdict(lambda: {
+        "names": [], "pcts": [], "rationales": [], "models": set(),
+    })
+
+    for s in suggestions:
+        raw = s.get("virtual_portfolio")
+        if not raw:
+            continue
+        try:
+            vp = _json.loads(raw) if isinstance(raw, str) else raw
+        except Exception:
+            continue
+        items = vp.get("virtual_portfolio", []) if isinstance(vp, dict) else []
+        model = s.get("model_name", "?")
+        for item in items:
+            ticker = str(item.get("ticker", "")).strip().upper()
+            if not ticker or len(ticker) > 15:
+                continue
+            agg[ticker]["names"].append(str(item.get("name", ticker)))
+            pct = item.get("pct") or item.get("weight") or 0
+            try:
+                agg[ticker]["pcts"].append(float(pct))
+            except (TypeError, ValueError):
+                pass
+            rationale = str(item.get("rationale", "")).strip()
+            if rationale:
+                agg[ticker]["rationales"].append(rationale)
+            agg[ticker]["models"].add(model)
+
+    if not agg:
+        return pd.DataFrame()
+
+    total_models = len({s.get("model_name") for s in suggestions if s.get("virtual_portfolio")})
+    rows = []
+    for ticker, data in agg.items():
+        nb = len(data["models"])
+        avg_pct = sum(data["pcts"]) / total_models if data["pcts"] and total_models else 0
+        name = data["names"][0] if data["names"] else ticker
+        rationale = data["rationales"][0] if data["rationales"] else "—"
+        if nb >= total_models:
+            conviction = "★★★ Consensus"
+        elif nb >= max(1, total_models // 2):
+            conviction = "★★ Fort"
+        else:
+            conviction = "★ Faible"
+        rows.append({
+            "Ticker": ticker,
+            "Titre": name,
+            "Poids moyen": round(avg_pct, 1),
+            "Modèles": nb,
+            "Conviction": conviction,
+            "Description": rationale[:120] + ("…" if len(rationale) > 120 else ""),
+        })
+
+    if not rows:
+        return pd.DataFrame()
+    df = pd.DataFrame(rows)
+    df = df.sort_values(["Modèles", "Poids moyen"], ascending=[False, False])
+    return df.reset_index(drop=True)
+
+
 # ── Investment gap recommendations ─────────────────────────────────────────────
 
 def compute_investment_gaps(df: pd.DataFrame) -> list[dict]:
-    """Recommandations rule-based basées sur les lacunes du portefeuille."""
+    """
+    Recommandations rule-based avec suggestions concrètes d'ETF/actions.
+    Chaque entrée : {priority, icon, title, action, suggestions: [{ticker, name, why}]}
+    """
     recs = []
     values = df["Valeur (€)"].dropna()
     if values.empty:
         return recs
     total = values.sum()
     sectors = set(df["Ticker"].map(classify_sector).tolist())
+    held = set(df["Ticker"].str.upper().tolist())
+    hhi = compute_hhi(df)
 
-    # Obligations absentes
-    if not any("Obligation" in s or "Bond" in s for s in sectors):
+    # ── Concentration élevée (priorité absolue) ────────────────────────────────
+    if hhi > 0.18:
+        dilution = []
+        if "CW8.PA" not in held:
+            dilution.append({"ticker": "CW8.PA", "name": "Amundi MSCI World (acc.)",
+                             "why": "1 600 entreprises, 23 pays. Le meilleur outil de dilution à coût minimal (TER 0.12%)."})
+        if "IWDA.AS" not in held:
+            dilution.append({"ticker": "IWDA.AS", "name": "iShares Core MSCI World",
+                             "why": "Alternative à CW8 sur Euronext Amsterdam, très liquide."})
+        if "EXSA" not in held and "EXSA.DE" not in held:
+            dilution.append({"ticker": "EXSA.DE", "name": "iShares STOXX Europe 600",
+                             "why": "Contrepoids Europe aux titres US déjà détenus."})
         recs.append({
-            "priority": "medium", "icon": "🔒",
-            "title": "Obligations : 0% de ton portefeuille",
-            "action": "Envisage 5-10% sur IEAG.L (iShares EUR Aggregate Bond) pour réduire la volatilité sans sacrifier le rendement long terme.",
+            "priority": "high", "icon": "📊",
+            "title": f"Portefeuille concentré — HHI {hhi:.2f} (seuil 0.18)",
+            "action": "Consacre les prochains achats à des ETF larges plutôt qu'à des titres individuels pour diluer le risque.",
+            "suggestions": dilution[:3],
         })
 
-    # Émergents absents
-    if not any("Emergent" in s or "Emerging" in s for s in sectors):
-        recs.append({
-            "priority": "low", "icon": "🌍",
-            "title": "Marchés émergents absents",
-            "action": "PAEM.PA (Amundi MSCI Emerging Markets) ou IEMM.L — représentent 40% du PIB mondial pour ~0% de ton portfolio.",
-        })
-
-    # Surexposition semis
+    # ── Surexposition semi-conducteurs ─────────────────────────────────────────
     semi_mask = df["Ticker"].str.upper().isin(_SEMI_TICKERS)
     if semi_mask.any():
         semi_pct = df.loc[semi_mask, "Valeur (€)"].dropna().sum() / total
         if semi_pct > 0.20:
             recs.append({
                 "priority": "high", "icon": "⚠️",
-                "title": f"Semi-conducteurs : {semi_pct*100:.0f}% — exposition élevée",
-                "action": "Redirige les prochaines mises vers CW8.PA ou EXSA pour diluer le risque sectoriel.",
+                "title": f"Semi-conducteurs {semi_pct*100:.0f}% — exposition cyclique élevée",
+                "action": "Le secteur est au pic de valorisation. Redirige les flux vers des ETF diversifiés.",
+                "suggestions": [
+                    {"ticker": "CW8.PA", "name": "Amundi MSCI World",
+                     "why": "Semis = ~6% du World. Dilue l'exposition sans sortir du secteur."},
+                    {"ticker": "MEUD.PA", "name": "Amundi MSCI Europe",
+                     "why": "0% exposition directe aux semis US, réduit la corrélation."},
+                    {"ticker": "PAEM.PA", "name": "Amundi MSCI Emerging Markets",
+                     "why": "Décorrélation forte vs semis US. Chine/Inde/Brésil."},
+                ],
             })
 
-    # Concentration HHI
-    hhi = compute_hhi(df)
-    if hhi > 0.18:
+    # ── Obligations absentes ───────────────────────────────────────────────────
+    if not any("Obligation" in s or "Bond" in s for s in sectors):
         recs.append({
-            "priority": "high", "icon": "📊",
-            "title": f"Portefeuille concentré (HHI {hhi:.2f})",
-            "action": "Prochains achats : priorise les ETF larges (CW8.PA, EXSA) plutôt que des titres individuels.",
+            "priority": "medium", "icon": "🔒",
+            "title": "Obligations : 0% du portefeuille",
+            "action": "5-10% en obligations réduit la volatilité de ~15% sans coût significatif sur le rendement long terme.",
+            "suggestions": [
+                {"ticker": "IEAG.L", "name": "iShares EUR Aggregate Bond",
+                 "why": "Obligations EUR investment-grade. TER 0.10%. Corrélation négative aux actions en crise."},
+                {"ticker": "XGLE.DE", "name": "Xtrackers EUR Govt Bond 1-3yr",
+                 "why": "Duration courte = moins sensible aux taux. Plus défensif."},
+                {"ticker": "IBTS.L", "name": "iShares $ Treasury Bond 1-3yr",
+                 "why": "Bon du Trésor US court terme. Rendement ~5% actuel, risque minimal."},
+            ],
         })
 
-    # Small caps absentes
+    # ── Marchés émergents absents ──────────────────────────────────────────────
+    if not any("Emergent" in s or "Emerging" in s for s in sectors):
+        recs.append({
+            "priority": "low", "icon": "🌍",
+            "title": "Marchés émergents absents",
+            "action": "Les émergents représentent 40% du PIB mondial et ~12% du MSCI ACWI. Sous-pondérés = manque à gagner structurel.",
+            "suggestions": [
+                {"ticker": "PAEM.PA", "name": "Amundi MSCI Emerging Markets",
+                 "why": "Le plus gros ETF EM européen. TER 0.20%. Chine 30%, Inde 18%, Taiwan 16%."},
+                {"ticker": "IEMM.L", "name": "iShares MSCI EM IMI",
+                 "why": "Couvre small caps EM en plus. Meilleure exposition à l'Inde et au Vietnam."},
+                {"ticker": "IIND.L", "name": "iShares MSCI India",
+                 "why": "Focus Inde : 7% de croissance/an attendu, démographie favorable. Plus concentré mais conviction forte."},
+            ],
+        })
+
+    # ── Small & Mid caps absentes ──────────────────────────────────────────────
     if not any("Small" in s for s in sectors):
         recs.append({
             "priority": "low", "icon": "📈",
-            "title": "Small caps absentes",
-            "action": "ZPRV (SPDR MSCI USA Small Cap) ou IUSZ.L — prime historique de 1-2%/an sur le long terme.",
+            "title": "Small caps absentes — prime historique non capturée",
+            "action": "Les small caps US surperforment les large caps de 1-2%/an sur 30 ans (Fama-French factor). Faible corrélation aux mega-caps tech.",
+            "suggestions": [
+                {"ticker": "ZPRV.DE", "name": "SPDR MSCI USA Small Cap Value",
+                 "why": "Small + Value = double prime Fama-French. TER 0.30%. Historique solide."},
+                {"ticker": "IUSZ.L", "name": "iShares MSCI USA Small Cap",
+                 "why": "Plus large (1 700 titres), moins de value-tilt. Bonne alternative neutre."},
+                {"ticker": "ZNXR.DE", "name": "SPDR MSCI Europe Small Cap",
+                 "why": "Small caps Europe : valorisations plus basses qu'aux US, upside potentiel élevé."},
+            ],
+        })
+
+    # ── Or / actif refuge absent ───────────────────────────────────────────────
+    has_gold = any("Gold" in s or "Or" in s or "Commodit" in s for s in sectors)
+    if not has_gold and total > 2000:
+        recs.append({
+            "priority": "low", "icon": "🪙",
+            "title": "Actif refuge absent (or / commodités)",
+            "action": "5% en or améliore le ratio de Sharpe du portefeuille sans réduire le rendement espéré.",
+            "suggestions": [
+                {"ticker": "SGLD.L", "name": "Invesco Physical Gold ETC",
+                 "why": "Or physique en EUR. TER 0.12% — le moins cher du marché."},
+                {"ticker": "XGDU.L", "name": "Xtrackers Physical Gold ETC",
+                 "why": "Alternative iShares/DWS, backing physique sécurisé à Zurich."},
+                {"ticker": "LYTR.PA", "name": "Amundi Physical Gold ETC",
+                 "why": "En EUR, cotation Euronext Paris. Accessible facilement via brokers FR."},
+            ],
+        })
+
+    # ── Titre à fort momentum non détenu ──────────────────────────────────────
+    momentum_candidates = [
+        {"ticker": "MSFT", "name": "Microsoft", "why": "Azure +21% YoY, Copilot déployé sur 1B users. FCF $75Mds. PER 30x justifié."},
+        {"ticker": "META", "name": "Meta Platforms", "why": "Machines IA internes réduisent les coûts infra. Croissance pub +16%. PER 22x."},
+        {"ticker": "AMZN", "name": "Amazon", "why": "AWS reprend +17% de croissance. Marge opérationnelle x3 en 2 ans."},
+        {"ticker": "ASML.AS", "name": "ASML Holding", "why": "Monopole mondial EUV lithography. Carnet de commandes 40Mds€. Clé de l'IA."},
+        {"ticker": "NOVO-B.CO", "name": "Novo Nordisk", "why": "Ozempic/Wegovy : marché GLP-1 estimé 150Mds$ en 2030. Moat réglementaire fort."},
+    ]
+    # Filtre ceux déjà détenus
+    missing_momentum = [c for c in momentum_candidates if c["ticker"] not in held]
+    if missing_momentum and hhi < 0.30:
+        recs.append({
+            "priority": "low", "icon": "🚀",
+            "title": "Opportunités à fort momentum",
+            "action": "Titres individuels à conviction élevée, non détenus. À considérer en complément des ETF.",
+            "suggestions": missing_momentum[:3],
         })
 
     return recs

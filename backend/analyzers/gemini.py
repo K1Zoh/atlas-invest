@@ -1,38 +1,41 @@
 import os
 import json
 import re
+import google.generativeai as genai
+from dotenv import load_dotenv
+
+load_dotenv()
+
+_api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY", "")
+_model_name = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+
+genai.configure(api_key=_api_key)
+
+
+def _parse_vp(text: str) -> dict | None:
+    m = re.search(r"```json\s*(\{.*?\})\s*```", text, re.DOTALL)
+    if not m:
+        return None
+    try:
+        return json.loads(m.group(1))
+    except Exception:
+        return None
 
 
 def analyze_with_gemini(prompt: str) -> dict:
-    api_key = os.getenv("GEMINI_API_KEY", "").strip()
-    if not api_key:
-        return {"error": "GEMINI_API_KEY non configurée dans .env", "text": "", "virtual_portfolio": None, "conviction_level": None}
-
-    model_name = os.getenv("GEMINI_MODEL", "gemini-2.5-pro")
-
+    if not _api_key:
+        return {"model": "Gemini", "text": None, "error": "Clé API manquante"}
     try:
-        import google.generativeai as genai
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel(model_name)
+        model = genai.GenerativeModel(_model_name)
         response = model.generate_content(prompt)
         text = response.text
-        vp = _extract_json(text)
+        vp = _parse_vp(text)
         return {
-            "model": f"Gemini ({model_name})",
+            "model": f"Gemini ({_model_name})",
             "text": text,
             "virtual_portfolio": vp,
             "conviction_level": vp.get("conviction_level") if vp else None,
             "error": None,
         }
     except Exception as e:
-        return {"error": str(e), "text": "", "virtual_portfolio": None, "conviction_level": None}
-
-
-def _extract_json(text: str) -> dict | None:
-    match = re.search(r"```json\s*(.*?)\s*```", text, re.DOTALL)
-    if match:
-        try:
-            return json.loads(match.group(1))
-        except json.JSONDecodeError:
-            return None
-    return None
+        return {"model": f"Gemini ({_model_name})", "text": None, "error": str(e)}

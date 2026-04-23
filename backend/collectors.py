@@ -7,6 +7,20 @@ _SEARCH_HEADERS = {
     "Accept": "application/json",
 }
 
+# Broker-specific codes (Trading 212 etc.) → Yahoo Finance symbols
+_BROKER_TO_YF: dict[str, str] = {
+    "10AP":     "10AP.L",
+    "6AQQ":     "6AQQ.L",
+    "XAMZ":     "XAMZ.L",
+    "L0CK":     "L0CK.L",
+    "EXSA":     "EXSA.DE",
+    "500USD.SW": "P500.PA",   # remplacé par équivalent liquide PA
+}
+
+
+def _yf_symbol(ticker: str) -> str:
+    return _BROKER_TO_YF.get(ticker.upper(), ticker)
+
 
 def search_tickers(query: str, max_results: int = 8) -> list[dict]:
     """Recherche par nom ou ticker approximatif. Retourne [{symbol, name, exchange, type}]."""
@@ -38,7 +52,7 @@ def search_tickers(query: str, max_results: int = 8) -> list[dict]:
 def verify_ticker(ticker: str) -> dict | None:
     """Retourne nom, prix actuel et devise pour un symbole connu, ou None."""
     try:
-        info = yf.Ticker(ticker).info
+        info = yf.Ticker(_yf_symbol(ticker)).info
         price = info.get("currentPrice") or info.get("regularMarketPrice")
         name = info.get("longName") or info.get("shortName")
         currency = info.get("currency", "USD")
@@ -50,32 +64,44 @@ def verify_ticker(ticker: str) -> dict | None:
 
 
 def get_current_prices(tickers: list[str]) -> dict[str, float]:
-    """Retourne {ticker: prix_actuel} pour une liste de tickers."""
+    """Retourne {ticker_original: prix_actuel}. Mappe les codes broker vers YF."""
     if not tickers:
         return {}
-    data = yf.download(tickers, period="1d", auto_adjust=True, progress=False)
-    prices = {}
-    if len(tickers) == 1:
+    # Build mapping original → yf symbol (deduplicated)
+    orig_to_yf = {t: _yf_symbol(t) for t in tickers}
+    yf_symbols = list(dict.fromkeys(orig_to_yf.values()))  # unique, preserve order
+
+    data = yf.download(yf_symbols, period="1d", auto_adjust=True, progress=False)
+    prices: dict[str, float] = {}
+
+    if len(yf_symbols) == 1:
         close = data["Close"]
         if not close.empty:
-            prices[tickers[0].upper()] = float(close.iloc[-1])
+            yf_sym = yf_symbols[0].upper()
+            val = float(close.iloc[-1])
+            # map back to all originals that pointed to this yf symbol
+            for orig, yf_s in orig_to_yf.items():
+                if yf_s.upper() == yf_sym:
+                    prices[orig.upper()] = val
     else:
         close = data["Close"]
-        for t in tickers:
-            col = t.upper()
+        for orig, yf_s in orig_to_yf.items():
+            col = yf_s.upper()
             if col in close.columns and not close[col].dropna().empty:
-                prices[col] = float(close[col].dropna().iloc[-1])
+                prices[orig.upper()] = float(close[col].dropna().iloc[-1])
+
     return prices
 
 
 def get_normalized_history(tickers: list[str], period: str = "6mo") -> pd.DataFrame:
-    """Retourne les prix de clôture normalisés à 100 à la date de départ, multi-tickers."""
+    """Prix normalisés à 100 à la date de départ. Utilise les symboles YF réels."""
     if not tickers:
         return pd.DataFrame()
     dfs = []
     for t in tickers:
+        yf_sym = _yf_symbol(t)
         try:
-            df = yf.download(t, period=period, auto_adjust=True, progress=False, threads=False)
+            df = yf.download(yf_sym, period=period, auto_adjust=True, progress=False, threads=False)
             if df.empty:
                 continue
             close = df["Close"].squeeze()
@@ -83,7 +109,7 @@ def get_normalized_history(tickers: list[str], period: str = "6mo") -> pd.DataFr
             if first_valid is None:
                 continue
             norm = close / close[first_valid] * 100
-            norm.name = t
+            norm.name = t  # garde le nom original pour l'affichage
             dfs.append(norm)
         except Exception:
             continue

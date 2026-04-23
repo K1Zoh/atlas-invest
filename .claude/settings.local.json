@@ -19,7 +19,16 @@
       "Bash(python3 -m py_compile backend/analyzers/prompt.py)",
       "Bash(gh auth *)",
       "Bash(git init *)",
-      "Bash(git add *)"
+      "Bash(git add *)",
+      "Bash(git -c user.email=Matt.ceifao@hotmail.fr -c user.name=Matthieu commit -m ' *)",
+      "Bash(python3 -m py_compile frontend/dashboard.py backend/analyzers/gemini.py)",
+      "Bash(/Users/test/K1Zoh/stock-market-analyzer/.venv/bin/pip list *)",
+      "Bash(/Users/test/K1Zoh/stock-market-analyzer/.venv/bin/python -m pip list)",
+      "Bash(/Users/test/K1Zoh/stock-market-analyzer/.venv/bin/python -c \"import google.generativeai; print\\('ok'\\)\")",
+      "Bash(/Users/test/K1Zoh/stock-market-analyzer/.venv/bin/python -c ' *)",
+      "Bash(grep -v '^$')",
+      "Bash(python3 -m py_compile /Users/test/K1Zoh/stock-market-analyzer/frontend/dashboard.py /Users/test/K1Zoh/stock-market-analyzer/backend/analytics.py /Users/test/K1Zoh/stock-market-analyzer/backend/collectors.py)",
+      "Bash(python3 -m py_compile /Users/test/K1Zoh/stock-market-analyzer/frontend/dashboard.py /Users/test/K1Zoh/stock-market-analyzer/backend/analytics.py)"
     ]
   }
 }
