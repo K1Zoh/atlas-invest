@@ -61,6 +61,38 @@ def init_db():
 
         conn.commit()
         _migrate_old_positions(conn)
+        _fix_known_coingecko_ids(conn)
+
+
+_KNOWN_COINGECKO_IDS: dict[str, str] = {
+    "FLOKI": "floki",
+    "PEPE":  "pepe",
+    "SUI":   "sui",
+    "SHIB":  "shiba-inu",
+    "DOGE":  "dogecoin",
+    "XRP":   "ripple",
+    "ADA":   "cardano",
+    "SOL":   "solana",
+    "BTC":   "bitcoin",
+    "ETH":   "ethereum",
+    "BNB":   "binancecoin",
+    "LTC":   "litecoin",
+    "ETC":   "ethereum-classic",
+    "XLM":   "stellar",
+    "HBAR":  "hedera-hashgraph",
+    "KAS":   "kaspa",
+    "MEW":   "cat-in-a-dogs-world",
+}
+
+
+def _fix_known_coingecko_ids(conn):
+    """Backfill coingecko_id for tickers where the DB still has NULL."""
+    for ticker, cg_id in _KNOWN_COINGECKO_IDS.items():
+        conn.execute(
+            "UPDATE transactions SET coingecko_id=? WHERE UPPER(ticker)=? AND coingecko_id IS NULL AND COALESCE(asset_class,'stock')='crypto'",
+            (cg_id, ticker.upper()),
+        )
+    conn.commit()
 
 
 def _migrate_old_positions(conn):

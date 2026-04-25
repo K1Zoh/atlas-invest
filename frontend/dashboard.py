@@ -30,6 +30,7 @@ from backend.analytics import (
     compute_ai_top_picks,
     classify_crypto_category, compute_crypto_sector_allocation,
     compute_crypto_concentration_alerts, compute_crypto_investment_gaps,
+    compute_geographic_allocation, compute_risk_metrics,
 )
 from backend.crypto_importer import import_crypto_csv
 from backend.analyzers.prompt import build_analysis_prompt
@@ -1024,6 +1025,101 @@ with tab_dashboard:
                 )
                 st.plotly_chart(fig_bcd, use_container_width=True)
 
+        # ── Vue géographique ──────────────────────────────────────────────────
+        if has_any:
+            st.divider()
+            st.subheader("Exposition géographique")
+
+            crypto_val_for_geo = s_cry["total_value"] if has_crypto_ov else 0.0
+            df_geo = compute_geographic_allocation(
+                df if has_stocks else None,
+                crypto_total_value=crypto_val_for_geo,
+            )
+
+            if not df_geo.empty:
+                geo_total = df_geo["Valeur (€)"].sum()
+                df_geo["Pct"] = df_geo["Valeur (€)"] / geo_total * 100
+
+                gmap_col, gbar_col = st.columns([3, 2])
+
+                with gmap_col:
+                    df_map = df_geo[df_geo["ISO3"].notna()].copy()
+                    if not df_map.empty:
+                        fig_map = go.Figure(go.Choropleth(
+                            locations=df_map["ISO3"],
+                            z=df_map["Valeur (€)"],
+                            text=df_map["Région"],
+                            colorscale=[[0, "#1a2a1a"], [0.5, "#10b981"], [1.0, "#34d399"]],
+                            autocolorscale=False,
+                            marker_line_color="#2d2d2d",
+                            marker_line_width=0.5,
+                            colorbar=dict(
+                                title="Valeur (€)",
+                                thickness=12,
+                                len=0.6,
+                                tickfont=dict(color=_TEXT, size=10),
+                                titlefont=dict(color=_TEXT, size=10),
+                            ),
+                            hovertemplate="<b>%{text}</b><br>%{z:,.0f} €<extra></extra>",
+                        ))
+                        fig_map.update_layout(
+                            **{**_CHART, "margin": dict(l=0, r=0, t=8, b=0)},
+                            height=320,
+                            geo=dict(
+                                showframe=False,
+                                showcoastlines=True,
+                                coastlinecolor="#2d2d2d",
+                                showland=True,
+                                landcolor="#1a1a1a",
+                                showocean=True,
+                                oceancolor="#121212",
+                                showlakes=False,
+                                bgcolor="rgba(0,0,0,0)",
+                                projection_type="natural earth",
+                            ),
+                        )
+                        st.plotly_chart(fig_map, use_container_width=True)
+                    else:
+                        st.caption("Aucun pays mappé — tickers non reconnus.")
+
+                with gbar_col:
+                    df_gbar = df_geo.sort_values("Valeur (€)", ascending=True)
+                    colors = [
+                        _C_CRYPTO if r == "Décentralisé (Crypto)"
+                        else _C_WARN if r in ("Monde", "Europe", "Marchés émergents", "Asie-Pacifique")
+                        else _PALETTE[i % len(_PALETTE)]
+                        for i, r in enumerate(df_gbar["Région"])
+                    ]
+                    fig_gbar = go.Figure(go.Bar(
+                        x=df_gbar["Pct"],
+                        y=df_gbar["Région"],
+                        orientation="h",
+                        marker=dict(color=colors, line=dict(width=0)),
+                        text=[f"{p:.1f}%  —  {v:,.0f} €"
+                              for p, v in zip(df_gbar["Pct"], df_gbar["Valeur (€)"])],
+                        textposition="outside",
+                        textfont=dict(size=10, color=_TEXT),
+                        hovertemplate="%{y}: %{x:.1f}%<extra></extra>",
+                    ))
+                    fig_gbar.update_layout(
+                        **_CHART, height=max(200, len(df_gbar) * 36),
+                        xaxis=dict(showgrid=False, showticklabels=False,
+                                   range=[0, df_gbar["Pct"].max() * 1.5]),
+                        yaxis=dict(showgrid=False, tickfont=dict(size=11)),
+                        bargap=0.3,
+                        margin=dict(l=0, r=60, t=8, b=0),
+                    )
+                    st.plotly_chart(fig_gbar, use_container_width=True)
+
+                # Alerte diversification géographique
+                us_pct = df_geo.loc[df_geo["Région"] == "États-Unis", "Pct"].sum()
+                if us_pct > 70:
+                    st.warning(
+                        f"**Concentration géographique** : {us_pct:.0f}% de ton portefeuille "
+                        f"est exposé aux États-Unis. Envisage d'ajouter de l'exposition "
+                        f"Europe / Asie / Marchés émergents."
+                    )
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 2 — Actions / ETF
@@ -1157,19 +1253,30 @@ with tab_stocks:
 
             st.divider()
 
-            # ── Historical chart ───────────────────────────────────────────────
+            # ── Historical chart + benchmark ───────────────────────────────────
             st.subheader("Évolution normalisée — base 100")
             p_options = {"6 mois": "6mo", "1 an": "1y", "2 ans": "2y", "5 ans": "5y"}
-            p_label = st.selectbox("Période", list(p_options.keys()), index=1, key="hist_p")
+            hc1, hc2 = st.columns([3, 1])
+            with hc1:
+                p_label = st.selectbox("Période", list(p_options.keys()), index=1, key="hist_p")
+            with hc2:
+                show_bench = st.checkbox("S&P 500 (réf.)", value=True, key="hist_bench")
             tickers_tuple = tuple(df["Ticker"].tolist())
             with st.spinner("Chargement…"):
-                df_hist = cached_history(tickers_tuple, p_options[p_label])
+                df_hist  = cached_history(tickers_tuple, p_options[p_label])
+                df_bench = cached_history(("SPY",), p_options[p_label]) if show_bench else pd.DataFrame()
             if not df_hist.empty:
                 fig_h = go.Figure()
                 for i, col in enumerate(df_hist.columns):
                     fig_h.add_trace(go.Scatter(
                         x=df_hist.index, y=df_hist[col], name=col, mode="lines",
                         line=dict(width=2, color=_PALETTE[i % len(_PALETTE)]),
+                    ))
+                if not df_bench.empty:
+                    fig_h.add_trace(go.Scatter(
+                        x=df_bench.index, y=df_bench.iloc[:, 0],
+                        name="S&P 500 (réf.)", mode="lines",
+                        line=dict(width=1.5, color=_MUTED, dash="dash"), opacity=0.7,
                     ))
                 fig_h.add_hline(y=100, line_dash="dot", line_color=_BORDER, line_width=1)
                 fig_h.update_layout(
@@ -1181,6 +1288,48 @@ with tab_stocks:
                                 borderwidth=1, font=dict(size=11)),
                 )
                 st.plotly_chart(fig_h, use_container_width=True)
+
+                # ── Risk metrics ──────────────────────────────────────────────
+                val_weights = {row["Ticker"]: (row["Valeur (€)"] or 0)
+                               for _, row in df.iterrows() if pd.notna(row.get("Valeur (€)"))}
+                risk = compute_risk_metrics(df_hist, value_weights=val_weights)
+                if risk:
+                    st.markdown("**Métriques de risque du portefeuille (période sélectionnée)**")
+                    rk1, rk2, rk3, rk4 = st.columns(4)
+                    rk1.metric("Rendement total",    f"{risk['total_return']:+.1f}%")
+                    rk2.metric("Volatilité ann.",    f"{risk['volatility']:.1f}%")
+                    rk3.metric("Sharpe ratio",       f"{risk['sharpe']:.2f}",
+                               help="Rendement ajusté du risque (taux sans risque 2.5%). > 1 = bon, > 2 = excellent.")
+                    rk4.metric("Max Drawdown",       f"{risk['max_drawdown']:.1f}%",
+                               help="Perte maximale depuis un pic sur la période.")
+
+                # ── Correlation heatmap ───────────────────────────────────────
+                if len(df_hist.columns) > 1:
+                    with st.expander("Matrice de corrélation", expanded=False):
+                        corr = df_hist.pct_change().dropna().corr().round(2)
+                        fig_corr = go.Figure(go.Heatmap(
+                            z=corr.values,
+                            x=corr.columns.tolist(),
+                            y=corr.index.tolist(),
+                            colorscale=[[0, _C_LOSS], [0.5, "#1a1a1a"], [1, _C_GAIN]],
+                            zmid=0, zmin=-1, zmax=1,
+                            text=corr.values,
+                            texttemplate="%{text:.2f}",
+                            textfont=dict(size=11),
+                            hovertemplate="%{y} / %{x} : %{z:.2f}<extra></extra>",
+                        ))
+                        fig_corr.update_layout(
+                            **_CHART,
+                            height=max(260, len(corr) * 46),
+                            margin=dict(l=0, r=0, t=8, b=0),
+                            xaxis=dict(tickfont=dict(size=11)),
+                            yaxis=dict(tickfont=dict(size=11)),
+                        )
+                        st.plotly_chart(fig_corr, use_container_width=True)
+                        st.caption(
+                            "1 = corrélation parfaite · 0 = indépendants · -1 = opposés. "
+                            "Des corrélations élevées (> 0.7) réduisent les bénéfices de la diversification."
+                        )
             else:
                 st.caption("Historique indisponible — certains tickers sont des codes broker non-standard.")
 
@@ -1945,19 +2094,35 @@ with tab_crypto:
 
             st.divider()
 
-            # ── Évolution normalisée ───────────────────────────────────────────
+            # ── Évolution normalisée + benchmark BTC ──────────────────────────
             st.subheader("Évolution normalisée — base 100")
             cp_options = {"30 jours": 30, "90 jours": 90, "1 an": 365, "2 ans": 730}
-            cp_label = st.selectbox("Période", list(cp_options.keys()), index=2, key="crypto_hist_p")
+            chc1, chc2 = st.columns([3, 1])
+            with chc1:
+                cp_label = st.selectbox("Période", list(cp_options.keys()), index=2, key="crypto_hist_p")
+            with chc2:
+                show_btc_bench = st.checkbox("BTC (réf.)", value=True, key="crypto_hist_bench")
             tickers_c_tuple = tuple(df_c["Ticker"].tolist())
+            _btc_id_ov = tuple({"BTC": "bitcoin"}.items())
             with st.spinner("Récupération de l'historique (CoinGecko)…"):
                 df_chist = cached_crypto_history(tickers_c_tuple, cp_options[cp_label])
+                df_cbtc  = (
+                    cached_crypto_history(("BTC",), cp_options[cp_label], _btc_id_ov)
+                    if show_btc_bench and "BTC" not in tickers_c_tuple
+                    else pd.DataFrame()
+                )
             if not df_chist.empty:
                 fig_ch = go.Figure()
                 for i, col in enumerate(df_chist.columns):
                     fig_ch.add_trace(go.Scatter(
                         x=df_chist.index, y=df_chist[col], name=col, mode="lines",
                         line=dict(width=2, color=_PALETTE[i % len(_PALETTE)]),
+                    ))
+                if not df_cbtc.empty:
+                    fig_ch.add_trace(go.Scatter(
+                        x=df_cbtc.index, y=df_cbtc.iloc[:, 0],
+                        name="BTC (réf.)", mode="lines",
+                        line=dict(width=1.5, color=_MUTED, dash="dash"), opacity=0.7,
                     ))
                 fig_ch.add_hline(y=100, line_dash="dot", line_color=_BORDER, line_width=1)
                 fig_ch.update_layout(
@@ -1969,6 +2134,47 @@ with tab_crypto:
                                 borderwidth=1, font=dict(size=11)),
                 )
                 st.plotly_chart(fig_ch, use_container_width=True)
+
+                # ── Risk metrics crypto ───────────────────────────────────────
+                cval_weights = {row["Ticker"]: (row["Valeur (€)"] or 0)
+                                for _, row in df_c.iterrows() if pd.notna(row.get("Valeur (€)"))}
+                crisk = compute_risk_metrics(df_chist, value_weights=cval_weights)
+                if crisk:
+                    st.markdown("**Métriques de risque — portefeuille crypto (période sélectionnée)**")
+                    crk1, crk2, crk3, crk4 = st.columns(4)
+                    crk1.metric("Rendement total",  f"{crisk['total_return']:+.1f}%")
+                    crk2.metric("Volatilité ann.",  f"{crisk['volatility']:.1f}%")
+                    crk3.metric("Sharpe ratio",     f"{crisk['sharpe']:.2f}",
+                                help="Rendement ajusté du risque. > 1 = bon, > 2 = excellent.")
+                    crk4.metric("Max Drawdown",     f"{crisk['max_drawdown']:.1f}%")
+
+                # ── Correlation heatmap crypto ────────────────────────────────
+                if len(df_chist.columns) > 1:
+                    with st.expander("Matrice de corrélation", expanded=False):
+                        ccorr = df_chist.pct_change().dropna().corr().round(2)
+                        fig_ccorr = go.Figure(go.Heatmap(
+                            z=ccorr.values,
+                            x=ccorr.columns.tolist(),
+                            y=ccorr.index.tolist(),
+                            colorscale=[[0, _C_LOSS], [0.5, "#1a1a1a"], [1, _C_GAIN]],
+                            zmid=0, zmin=-1, zmax=1,
+                            text=ccorr.values,
+                            texttemplate="%{text:.2f}",
+                            textfont=dict(size=10),
+                            hovertemplate="%{y} / %{x} : %{z:.2f}<extra></extra>",
+                        ))
+                        fig_ccorr.update_layout(
+                            **_CHART,
+                            height=max(260, len(ccorr) * 36),
+                            margin=dict(l=0, r=0, t=8, b=0),
+                            xaxis=dict(tickfont=dict(size=10)),
+                            yaxis=dict(tickfont=dict(size=10)),
+                        )
+                        st.plotly_chart(fig_ccorr, use_container_width=True)
+                        st.caption(
+                            "Des corrélations élevées (> 0.7) signifient que les actifs bougent ensemble "
+                            "— la diversification au sein de la crypto est limitée."
+                        )
             else:
                 st.caption("Historique indisponible — vérifier que les tickers sont reconnus par CoinGecko.")
 

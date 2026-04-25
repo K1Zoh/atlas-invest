@@ -128,6 +128,168 @@ def compute_sector_allocation(df: pd.DataFrame) -> pd.DataFrame:
     )
 
 
+# ── Geographic allocation ──────────────────────────────────────────────────────
+
+_COUNTRY_MAP: dict[str, str] = {
+    # ── Actions individuelles ──
+    "NVDA": "États-Unis", "AMD": "États-Unis", "AVGO": "États-Unis",
+    "INTC": "États-Unis", "QCOM": "États-Unis", "MU": "États-Unis",
+    "MRVL": "États-Unis", "AMAT": "États-Unis", "LRCX": "États-Unis",
+    "MSCI": "États-Unis", "SPGI": "États-Unis", "ICE": "États-Unis",
+    "CME": "États-Unis", "AAPL": "États-Unis", "MSFT": "États-Unis",
+    "AMZN": "États-Unis", "GOOGL": "États-Unis", "GOOG": "États-Unis",
+    "META": "États-Unis", "TSLA": "États-Unis", "JPM": "États-Unis",
+    "V": "États-Unis", "MA": "États-Unis", "UNH": "États-Unis",
+    "WMT": "États-Unis", "XOM": "États-Unis", "CVX": "États-Unis",
+    "JNJ": "États-Unis", "PG": "États-Unis", "COST": "États-Unis",
+    "TSM": "Taïwan",
+    "ASML": "Pays-Bas", "ASML.AS": "Pays-Bas",
+    "SAP": "Allemagne", "SAP.DE": "Allemagne",
+    "MC.PA": "France", "OR.PA": "France", "TTE.PA": "France",
+    "NOVO-B.CO": "Danemark",
+    "SONY": "Japon", "TM": "Japon", "7203.T": "Japon",
+    "BABA": "Chine", "JD": "Chine", "BIDU": "Chine",
+    "SHOP": "Canada", "RY": "Canada",
+    # ── ETF – Exposition Monde ──
+    "CW8.PA": "Monde", "MWRD.AS": "Monde", "6AQQ": "Monde",
+    "IWDA.AS": "Monde", "LCWD.PA": "Monde", "SWRD.SW": "Monde",
+    "URTH": "Monde", "VT": "Monde",
+    # ── ETF – États-Unis / S&P 500 ──
+    "10AP": "États-Unis", "P500.PA": "États-Unis", "PE500.PA": "États-Unis",
+    "500USD.SW": "États-Unis", "SPY": "États-Unis", "VOO": "États-Unis",
+    "IVV": "États-Unis", "CSPX.L": "États-Unis",
+    # ── ETF – Nasdaq / Tech US ──
+    "ANX.PA": "États-Unis", "ANXP.PA": "États-Unis", "PANX.PA": "États-Unis",
+    "LQQ.PA": "États-Unis", "QQQ": "États-Unis", "EQQQ.L": "États-Unis",
+    "XAMZ": "États-Unis", "CNDX.L": "États-Unis",
+    # ── ETF – Cyber / Tech ──
+    "L0CK": "États-Unis", "LOCK.L": "États-Unis", "ISPY.L": "États-Unis",
+    "HACK": "États-Unis", "CIBR": "États-Unis", "BUG": "États-Unis",
+    # ── ETF – Europe ──
+    "EXSA": "Europe", "EXSA.DE": "Europe", "IUSE.L": "Europe",
+    "MEUD.PA": "Europe", "DXS2.DE": "Europe", "STOXX": "Europe",
+    "SMEA.PA": "Europe", "EUNK.DE": "Europe",
+    # ── ETF – Marchés émergents ──
+    "EEM": "Marchés émergents", "VWO": "Marchés émergents",
+    "EIMI.L": "Marchés émergents", "EMIM.L": "Marchés émergents",
+    # ── ETF – Asie-Pacifique ──
+    "AAXJ": "Asie-Pacifique", "VPL": "Asie-Pacifique",
+    # ── Or / Commodités ──
+    "SGLD.L": "Global (Matières premières)",
+    "GLD": "Global (Matières premières)",
+    "XGDU.L": "Global (Matières premières)",
+    "LYTR.PA": "Global (Matières premières)",
+}
+
+_COUNTRY_ISO3: dict[str, str] = {
+    "États-Unis": "USA",
+    "Pays-Bas":   "NLD",
+    "Taïwan":     "TWN",
+    "Chine":      "CHN",
+    "France":     "FRA",
+    "Allemagne":  "DEU",
+    "Japon":      "JPN",
+    "Royaume-Uni": "GBR",
+    "Suisse":     "CHE",
+    "Corée du Sud": "KOR",
+    "Canada":     "CAN",
+    "Australie":  "AUS",
+    "Inde":       "IND",
+    "Brésil":     "BRA",
+    "Danemark":   "DNK",
+}
+
+
+def classify_country(ticker: str) -> str:
+    return _COUNTRY_MAP.get(ticker.upper(), _COUNTRY_MAP.get(ticker, "Non classifié"))
+
+
+def compute_geographic_allocation(
+    df_stocks: "pd.DataFrame | None",
+    df_crypto: "pd.DataFrame | None" = None,
+    crypto_total_value: float = 0.0,
+) -> pd.DataFrame:
+    """
+    Aggregates geographic exposure from stocks + crypto (as 'Décentralisé').
+    Returns columns: Région, Valeur (€), ISO3
+    """
+    country_val: dict[str, float] = {}
+
+    if df_stocks is not None:
+        for _, row in df_stocks.iterrows():
+            val = row.get("Valeur (€)")
+            if pd.isna(val) or val is None:
+                val = float(row.get("Investi (€)", 0) or 0)
+            country = classify_country(row["Ticker"])
+            country_val[country] = country_val.get(country, 0.0) + float(val)
+
+    if crypto_total_value > 0:
+        country_val["Décentralisé (Crypto)"] = (
+            country_val.get("Décentralisé (Crypto)", 0.0) + crypto_total_value
+        )
+
+    rows = []
+    for country, val in sorted(country_val.items(), key=lambda x: -x[1]):
+        rows.append({
+            "Région": country,
+            "Valeur (€)": val,
+            "ISO3": _COUNTRY_ISO3.get(country),
+        })
+    return pd.DataFrame(rows) if rows else pd.DataFrame()
+
+
+# ── Risk metrics ───────────────────────────────────────────────────────────────
+
+def compute_risk_metrics(
+    df_hist: pd.DataFrame,
+    value_weights: "dict[str, float] | None" = None,
+    risk_free_rate: float = 0.025,
+) -> dict:
+    """
+    Annualized return, volatility, Sharpe ratio, max drawdown.
+    df_hist: normalized base-100 DataFrame (tickers as columns).
+    value_weights: {ticker: portfolio_value} for weighted portfolio, else equal-weight.
+    """
+    if df_hist.empty or len(df_hist) < 20:
+        return {}
+
+    # Build portfolio series
+    cols = [c for c in df_hist.columns]
+    if value_weights:
+        wcols = {c: value_weights.get(c, 0) for c in cols}
+        total_w = sum(wcols.values())
+        portfolio = (
+            sum(df_hist[c] * wcols[c] for c in cols) / total_w
+            if total_w > 0
+            else df_hist[cols].mean(axis=1)
+        )
+    else:
+        portfolio = df_hist[cols].mean(axis=1)
+
+    daily_ret = portfolio.pct_change().dropna()
+    n = len(portfolio)
+    total_ret = (portfolio.iloc[-1] / portfolio.iloc[0]) - 1
+    ann_ret   = (1 + total_ret) ** (252 / n) - 1
+    ann_vol   = daily_ret.std() * (252 ** 0.5)
+
+    daily_rf = risk_free_rate / 252
+    sharpe = (
+        ((daily_ret - daily_rf).mean() / daily_ret.std() * (252 ** 0.5))
+        if daily_ret.std() > 0 else 0.0
+    )
+
+    rolling_max  = portfolio.cummax()
+    max_drawdown = ((portfolio - rolling_max) / rolling_max).min()
+
+    return {
+        "total_return":       total_ret * 100,
+        "annualized_return":  ann_ret   * 100,
+        "volatility":         ann_vol   * 100,
+        "sharpe":             round(sharpe, 2),
+        "max_drawdown":       max_drawdown * 100,
+    }
+
+
 # ── AI scoreboard ──────────────────────────────────────────────────────────────
 
 def compute_scoreboard(suggestions: list[dict]) -> pd.DataFrame:
