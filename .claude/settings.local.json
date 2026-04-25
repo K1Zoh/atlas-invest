@@ -28,7 +28,14 @@
       "Bash(/Users/test/K1Zoh/stock-market-analyzer/.venv/bin/python -c ' *)",
       "Bash(grep -v '^$')",
       "Bash(python3 -m py_compile /Users/test/K1Zoh/stock-market-analyzer/frontend/dashboard.py /Users/test/K1Zoh/stock-market-analyzer/backend/analytics.py /Users/test/K1Zoh/stock-market-analyzer/backend/collectors.py)",
-      "Bash(python3 -m py_compile /Users/test/K1Zoh/stock-market-analyzer/frontend/dashboard.py /Users/test/K1Zoh/stock-market-analyzer/backend/analytics.py)"
+      "Bash(python3 -m py_compile /Users/test/K1Zoh/stock-market-analyzer/frontend/dashboard.py /Users/test/K1Zoh/stock-market-analyzer/backend/analytics.py)",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('frontend/dashboard.py'\\).read\\(\\)\\); print\\('OK'\\)\")",
+      "Bash(python3 -c \"import ast; ast.parse\\(open\\('frontend/dashboard.py'\\).read\\(\\)\\); print\\('OK'\\)\")",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "Bash(python -c ' *)",
+      "Bash(python3 -c ' *)",
+      "Bash(.venv/bin/python3 -c ' *)"
     ]
   }
 }

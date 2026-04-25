@@ -367,3 +367,270 @@ def compute_investment_gaps(df: pd.DataFrame) -> list[dict]:
         })
 
     return recs
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# CRYPTO — Classification & analytics
+# ══════════════════════════════════════════════════════════════════════════════
+
+_CRYPTO_CATEGORY_MAP: dict[str, str] = {
+    # Réserve de valeur / PoW historique
+    "BTC": "Réserve de valeur",
+    "LTC": "Paiement / PoW",
+    "BCH": "Paiement / PoW",
+    # Paiement / Réseau
+    "XRP": "Paiement / Réseau",
+    "XLM": "Paiement / Réseau",
+    # Layer 1
+    "ETH": "Layer 1",
+    "SOL": "Layer 1",
+    "AVAX": "Layer 1",
+    "ADA": "Layer 1",
+    "NEAR": "Layer 1",
+    "APT": "Layer 1",
+    "SUI": "Layer 1",
+    "INJ": "Layer 1",
+    "TON": "Layer 1",
+    "FTM": "Layer 1",
+    "TRX": "Layer 1",
+    "ALGO": "Layer 1",
+    "VET": "Layer 1",
+    "SEI": "Layer 1",
+    "ICP": "Layer 1",
+    # Layer 0 / Interopérabilité
+    "DOT": "Layer 0 / Interop",
+    "ATOM": "Layer 0 / Interop",
+    # Layer 2 / Scaling
+    "MATIC": "Layer 2",
+    "POL": "Layer 2",
+    "ARB": "Layer 2",
+    "OP": "Layer 2",
+    "IMX": "Layer 2",
+    "STX": "Layer 2",
+    "ZK": "Layer 2",
+    "STRK": "Layer 2",
+    # DeFi
+    "UNI": "DeFi",
+    "AAVE": "DeFi",
+    "MKR": "DeFi",
+    "CRV": "DeFi",
+    "SNX": "DeFi",
+    "COMP": "DeFi",
+    "RUNE": "DeFi",
+    "SUSHI": "DeFi",
+    "1INCH": "DeFi",
+    "BAL": "DeFi",
+    "YFI": "DeFi",
+    "CVX": "DeFi",
+    "DYDX": "DeFi",
+    "GMX": "DeFi",
+    "PENDLE": "DeFi",
+    "JUP": "DeFi",
+    "ENA": "DeFi / Stablecoin",
+    # DeFi / Staking
+    "LDO": "DeFi / Staking",
+    "RPL": "DeFi / Staking",
+    "FXS": "DeFi / Staking",
+    # Oracles / Infrastructure
+    "LINK": "Oracle / Infra",
+    "GRT": "Oracle / Infra",
+    "PYTH": "Oracle / Infra",
+    "EIGEN": "Oracle / Infra",
+    # Infra décentralisée / IA
+    "FIL": "Infra décentralisée",
+    "RENDER": "Infra décentralisée",
+    "TAO": "IA décentralisée",
+    "WLD": "IA / Identité",
+    # Exchange Tokens
+    "BNB": "Exchange Token",
+    # Métavers / Gaming
+    "MANA": "Métavers / Gaming",
+    "SAND": "Métavers / Gaming",
+    # Meme / Spéculatif
+    "DOGE": "Meme",
+    "SHIB": "Meme",
+    "PEPE": "Meme",
+    "WIF": "Meme",
+    "BONK": "Meme",
+    # Divers
+    "HBAR": "Entreprise / DLT",
+    "TIA": "Modular Blockchain",
+    "ENS": "Identité Web3",
+    "BLUR": "NFT / Marché",
+}
+
+_CRYPTO_MEME_TICKERS = {"DOGE", "SHIB", "PEPE", "WIF", "BONK"}
+
+
+def classify_crypto_category(ticker: str) -> str:
+    return _CRYPTO_CATEGORY_MAP.get(ticker.upper(), "Autre")
+
+
+def compute_crypto_sector_allocation(df: pd.DataFrame) -> pd.DataFrame:
+    df2 = df.copy()
+    df2["Catégorie"] = df2["Ticker"].map(classify_crypto_category)
+    return (
+        df2.groupby("Catégorie")["Valeur (€)"]
+        .sum().dropna().reset_index()
+        .sort_values("Valeur (€)", ascending=False)
+    )
+
+
+def compute_crypto_concentration_alerts(df: pd.DataFrame) -> list[tuple[str, str]]:
+    """Alertes de concentration adaptées à la crypto (seuils plus larges)."""
+    alerts = []
+    values = df["Valeur (€)"].dropna()
+    if values.empty:
+        return alerts
+    total = values.sum()
+    sorted_vals = values.sort_values(ascending=False)
+    top1_pct = sorted_vals.iloc[0] / total
+    top1_ticker = df.loc[sorted_vals.index[0], "Ticker"]
+    if top1_pct > 0.70:
+        alerts.append(("error", f"Top position **{top1_ticker}** = {top1_pct*100:.1f}% (seuil 70%)"))
+    elif top1_pct > 0.50:
+        alerts.append(("warning", f"Top position **{top1_ticker}** = {top1_pct*100:.1f}% (seuil 50%)"))
+    if len(sorted_vals) >= 3 and sorted_vals.iloc[:3].sum() / total > 0.90:
+        alerts.append(("warning", f"Top 3 positions = {sorted_vals.iloc[:3].sum()/total*100:.1f}% (seuil 90%)"))
+    hhi = compute_hhi(df)
+    if hhi > 0.50:
+        alerts.append(("error", f"HHI = {hhi:.3f} — concentration très élevée"))
+    elif hhi > 0.30:
+        alerts.append(("warning", f"HHI = {hhi:.3f} — concentration modérée"))
+    meme_mask = df["Ticker"].str.upper().isin(_CRYPTO_MEME_TICKERS)
+    if meme_mask.any():
+        meme_pct = df.loc[meme_mask, "Valeur (€)"].dropna().sum() / total
+        if meme_pct > 0.20:
+            alerts.append(("error", f"Meme coins = {meme_pct*100:.1f}% — exposition spéculative élevée (seuil 20%)"))
+        elif meme_pct > 0.10:
+            alerts.append(("warning", f"Meme coins = {meme_pct*100:.1f}% — surveiller (seuil 10%)"))
+    return alerts
+
+
+def compute_crypto_investment_gaps(df: pd.DataFrame) -> list[dict]:
+    """
+    Recommandations rule-based pour un portefeuille crypto.
+    Même format que compute_investment_gaps (stocks).
+    """
+    recs = []
+    values = df["Valeur (€)"].dropna()
+    if values.empty:
+        return recs
+    total = values.sum()
+    held = set(df["Ticker"].str.upper().tolist())
+    hhi = compute_hhi(df)
+
+    # ── Concentration élevée ───────────────────────────────────────────────────
+    if hhi > 0.35:
+        dilution = [s for s in [
+            {"ticker": "ETH", "name": "Ethereum",
+             "why": "2ème capitalisation mondiale. Infrastructure de 70% du DeFi. Staking ~3-4% APY."} if "ETH" not in held else None,
+            {"ticker": "SOL", "name": "Solana",
+             "why": "Concurrent haute-performance d'ETH. Frais ~$0.001. Écosystème DeFi/NFT en forte croissance."} if "SOL" not in held else None,
+            {"ticker": "BNB", "name": "BNB",
+             "why": "Token de Binance, plus grand exchange mondial. Burn trimestriel déflationnaire."} if "BNB" not in held else None,
+        ] if s is not None]
+        recs.append({
+            "priority": "high", "icon": "📊",
+            "title": f"Portefeuille concentré — HHI {hhi:.2f} (seuil 0.35)",
+            "action": "Forte concentration = risque asymétrique élevé. Dilue en ajoutant d'autres couches de la stack crypto.",
+            "suggestions": dilution[:3],
+        })
+
+    # ── Bitcoin absent ─────────────────────────────────────────────────────────
+    if "BTC" not in held:
+        recs.append({
+            "priority": "high", "icon": "₿",
+            "title": "Bitcoin absent — réserve de valeur manquante",
+            "action": "Le Bitcoin est l'actif de référence crypto. ETF spot approuvés (BlackRock, Fidelity). Adoption institutionnelle en accélération.",
+            "suggestions": [
+                {"ticker": "BTC", "name": "Bitcoin",
+                 "why": "Dominance ~50% du marché. ETF spot approuvés. Halving 2024 = offre réduite de 50%. Store of value numérique."},
+            ],
+        })
+
+    # ── Ethereum absent ────────────────────────────────────────────────────────
+    if "ETH" not in held:
+        recs.append({
+            "priority": "medium", "icon": "⬡",
+            "title": "Ethereum absent — infrastructure DeFi manquante",
+            "action": "ETH est le socle de 70% du DeFi. Après The Merge, token déflationnaire avec ~3-4% de rendement staking.",
+            "suggestions": [
+                {"ticker": "ETH", "name": "Ethereum",
+                 "why": "Déflationnaire post-Merge. TVL DeFi ~$60Mds. Staking natif ~3.5% APY. L2 en forte croissance."},
+                {"ticker": "SOL", "name": "Solana",
+                 "why": "Alternative haute performance. 65 000 TPS, fees ~$0.001. NFT + DeFi en forte croissance."},
+                {"ticker": "AVAX", "name": "Avalanche",
+                 "why": "Compatibilité EVM, subnets enterprise. Forte présence Asie-Pacifique."},
+            ],
+        })
+
+    # ── Layer 2 absent (si ETH est détenu) ────────────────────────────────────
+    l2_tickers = {"ARB", "OP", "MATIC", "POL", "IMX", "ZK", "STRK"}
+    if not held.intersection(l2_tickers) and "ETH" in held:
+        recs.append({
+            "priority": "low", "icon": "⚡",
+            "title": "Layer 2 absent — scalabilité Ethereum non capturée",
+            "action": "Les L2 absorbent les frais d'Ethereum et capturent la croissance DeFi. TVL cumulée x5 en 24 mois.",
+            "suggestions": [
+                {"ticker": "ARB", "name": "Arbitrum",
+                 "why": "Plus grosse TVL L2 (~$18Mds). Optimistic rollup mature. Écosystème DeFi (GMX, Pendle)."},
+                {"ticker": "OP", "name": "Optimism",
+                 "why": "Superchain avec Coinbase Base. Rétroactif airdrops récurrents. Gouvernance OP Stack."},
+                {"ticker": "MATIC", "name": "Polygon",
+                 "why": "Adoption enterprise (Nike, Reddit, Starbucks). zkEVM en production."},
+            ],
+        })
+
+    # ── Infrastructure / Oracles absents ──────────────────────────────────────
+    infra_tickers = {"LINK", "GRT", "PYTH", "EIGEN", "RENDER", "TAO"}
+    if not held.intersection(infra_tickers):
+        recs.append({
+            "priority": "low", "icon": "🔧",
+            "title": "Infrastructure crypto absente (oracles, IA décentralisée)",
+            "action": "Les protocoles d'infrastructure ont une utilité réelle et des flux de revenus. Moins spéculatifs que les memes.",
+            "suggestions": [
+                {"ticker": "LINK", "name": "Chainlink",
+                 "why": "Monopole de facto des oracles on-chain. Utilisé par 90%+ des protocoles DeFi. CCIP pour les ponts cross-chain."},
+                {"ticker": "RENDER", "name": "Render Network",
+                 "why": "GPU décentralisé pour rendu 3D et IA. Utilisé par des studios Hollywood."},
+                {"ticker": "TAO", "name": "Bittensor",
+                 "why": "Réseau d'IA décentralisé. Tokenomique similaire au Bitcoin. Forte adoption développeurs IA."},
+            ],
+        })
+
+    # ── DeFi absent ────────────────────────────────────────────────────────────
+    defi_tickers = {"AAVE", "UNI", "MKR", "CRV", "LDO", "PENDLE", "GMX"}
+    if not held.intersection(defi_tickers) and total > 500:
+        recs.append({
+            "priority": "low", "icon": "🏦",
+            "title": "DeFi absent — rendements on-chain non capturés",
+            "action": "Les protocoles DeFi génèrent des revenus réels (fees, intérêts). Meilleur ratio risque/utilité que les memes.",
+            "suggestions": [
+                {"ticker": "AAVE", "name": "Aave",
+                 "why": "Protocole de lending #1. ~$12Mds TVL. Intégration Real World Assets (RWA)."},
+                {"ticker": "UNI", "name": "Uniswap",
+                 "why": "DEX #1 par volume (~$1Md/jour). Fee switch potentiel → distribution stakers."},
+                {"ticker": "LDO", "name": "Lido DAO",
+                 "why": "Plus grand protocole liquid staking ETH (~$30Mds TVL). stETH = 30% de tout l'ETH staké."},
+            ],
+        })
+
+    # ── Meme coins surreprésentés ──────────────────────────────────────────────
+    meme_mask = df["Ticker"].str.upper().isin(_CRYPTO_MEME_TICKERS)
+    if meme_mask.any():
+        meme_pct = df.loc[meme_mask, "Valeur (€)"].dropna().sum() / total
+        if meme_pct > 0.20:
+            recs.append({
+                "priority": "medium", "icon": "⚠️",
+                "title": f"Meme coins = {meme_pct*100:.0f}% — exposition spéculative élevée",
+                "action": "Les meme coins chutent de 90%+ hors bull market. Limite à 5-10% max du portefeuille crypto.",
+                "suggestions": [
+                    {"ticker": "BTC", "name": "Bitcoin",
+                     "why": "Réduit l'exposition spéculative. Réserve de valeur avec adoption institutionnelle croissante."},
+                    {"ticker": "ETH", "name": "Ethereum",
+                     "why": "Utility token avec revenus protocolaires réels. Bien moins volatile que les memes."},
+                ],
+            })
+
+    return recs
