@@ -1733,7 +1733,9 @@ with tab_crypto:
 
             # ── Performance par crypto ─────────────────────────────────────────
             st.subheader("Performance par crypto")
-            df_cperf = df_c.dropna(subset=["Perf (%)"]).sort_values("Perf (%)")
+            df_cperf = df_c.dropna(subset=["Perf (%)"]).copy()
+            # Exclure les positions avec moins de 1€ investi (perf% non significative)
+            df_cperf = df_cperf[df_cperf["Investi (€)"] >= 1.0].sort_values("Perf (%)")
             if not df_cperf.empty:
                 fig_cp = go.Figure(go.Bar(
                     x=df_cperf["Perf (%)"], y=df_cperf["Ticker"], orientation="h",

@@ -180,7 +180,10 @@ def get_positions(asset_class: str = "stock") -> list[dict]:
     for tk in sorted(agg):
         d = agg[tk]
         qty = d["quantity"]
+        total_cost = d["total_cost"]
         if qty <= 1e-8:
+            continue
+        if total_cost < 0.01:  # dust position (< 1 centime investi)
             continue
         result.append({
             "ticker": tk,
