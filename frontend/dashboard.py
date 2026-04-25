@@ -689,6 +689,190 @@ def _render_hhi_panel(hhi: float, low_thresh: float, mid_thresh: float, accent: 
     """, unsafe_allow_html=True)
 
 
+# ── Asset fiche ─────────────────────────────────────────────────────────────────
+
+def _render_asset_fiche(ticker: str, asset_class: str, df: pd.DataFrame, prices: dict):
+    from backend.analyzers.asset_prompt import build_asset_analysis_prompt
+
+    row_df = df[df["Ticker"] == ticker]
+    if row_df.empty:
+        st.warning(f"Données introuvables pour {ticker}")
+        return
+    row = row_df.iloc[0]
+    txs = get_transactions(ticker, asset_class=asset_class)
+
+    invested = row["Investi (€)"]
+    value    = row["Valeur (€)"]
+    gain     = row["Gain/Perte (€)"]
+    perf     = row["Perf (%)"]
+    pru      = row["PRU"]
+    current  = row["Cours actuel"]
+    name     = row["Nom"]
+    qty      = row["Qté"]
+
+    has_price = pd.notna(value)
+    gain_color = _C_GAIN if (has_price and gain >= 0) else _C_LOSS
+
+    def _m(v, fmt=".2f", suffix=" €"):
+        return f"{v:{fmt}}{suffix}" if pd.notna(v) else "N/A"
+
+    is_crypto = asset_class == "crypto"
+    badge_bg  = "#f7931a22" if is_crypto else "#10b98122"
+    badge_fg  = _C_CRYPTO if is_crypto else _C_GAIN
+    badge_lbl = "₿  CRYPTO" if is_crypto else "◈  STOCK / ETF"
+    acc       = _C_CRYPTO if is_crypto else _C_GAIN
+    acc_alpha = "rgba(247,147,26,0.07)" if is_crypto else "rgba(16,185,129,0.07)"
+
+    # ── Header card ───────────────────────────────────────────────────────────
+    st.markdown(f"""
+    <div style="background:{_SURFACE};border:1px solid {_BORDER};border-radius:12px;
+                padding:1.25rem 1.5rem 1rem;margin-bottom:1.25rem;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
+        <div>
+          <span style="font-size:22px;font-weight:700;color:{_TEXT};letter-spacing:-0.02em;">{ticker}</span>
+          <span style="font-size:14px;color:{_MUTED};margin-left:0.75rem;">{name}</span>
+        </div>
+        <span style="background:{badge_bg};color:{badge_fg};padding:4px 12px;border-radius:20px;
+                     font-size:11px;font-weight:600;letter-spacing:0.05em;">{badge_lbl}</span>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:1rem;">
+        <div>
+          <div style="font-size:10px;color:{_MUTED};letter-spacing:0.06em;margin-bottom:4px;">INVESTI</div>
+          <div style="font-size:18px;font-weight:600;">{_m(invested, ',.2f')}</div>
+        </div>
+        <div>
+          <div style="font-size:10px;color:{_MUTED};letter-spacing:0.06em;margin-bottom:4px;">VALEUR</div>
+          <div style="font-size:18px;font-weight:600;">{_m(value, ',.2f')}</div>
+        </div>
+        <div>
+          <div style="font-size:10px;color:{_MUTED};letter-spacing:0.06em;margin-bottom:4px;">GAIN / PERTE</div>
+          <div style="font-size:18px;font-weight:600;color:{gain_color};">{_m(gain, '+,.2f')}</div>
+        </div>
+        <div>
+          <div style="font-size:10px;color:{_MUTED};letter-spacing:0.06em;margin-bottom:4px;">PERFORMANCE</div>
+          <div style="font-size:18px;font-weight:600;color:{gain_color};">{_m(perf, '+.2f', '%')}</div>
+        </div>
+        <div>
+          <div style="font-size:10px;color:{_MUTED};letter-spacing:0.06em;margin-bottom:4px;">COURS ACTUEL</div>
+          <div style="font-size:18px;font-weight:600;">{_m(current, ',.4f')}</div>
+        </div>
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # ── Two-column body: transactions | chart ─────────────────────────────────
+    fc1, fc2 = st.columns([1, 1.6])
+
+    with fc1:
+        st.markdown("**Historique des transactions**")
+        if txs:
+            tx_rows = []
+            for t in txs:
+                is_buy = t["quantity"] >= 0
+                tx_rows.append({
+                    "Date":     t["tx_date"],
+                    "Type":     "Achat" if is_buy else "Retrait",
+                    "Quantité": f"{t['quantity']:+.4f}",
+                    "Prix":     f"{t['price']:.6f} €",
+                    "Total":    f"{abs(t['quantity'] * t['price']):.2f} €",
+                    "Frais":    f"{t['fees']:.2f} €" if t["fees"] else "—",
+                })
+            st.dataframe(pd.DataFrame(tx_rows), hide_index=True, use_container_width=True)
+        else:
+            st.caption("Aucune transaction enregistrée.")
+
+        # PRU vs cours actuel mini-gauge
+        if has_price and pru > 0:
+            ratio = current / pru
+            bar_color = _C_GAIN if ratio >= 1 else _C_LOSS
+            bar_pct   = min(100, ratio * 50)   # 100% pru → 50%; 200% → 100%
+            st.markdown(f"""
+            <div style="margin-top:1rem;background:{_SURFACE};border:1px solid {_BORDER};
+                        border-radius:8px;padding:0.75rem 1rem;">
+              <div style="font-size:10px;color:{_MUTED};letter-spacing:0.06em;margin-bottom:6px;">
+                COURS vs PRU
+              </div>
+              <div style="display:flex;justify-content:space-between;font-size:12px;
+                          color:{_TEXT};margin-bottom:6px;">
+                <span>PRU : {pru:.4f} €</span>
+                <span style="color:{bar_color};font-weight:600;">
+                  {ratio:+.1%} {'▲' if ratio >= 1 else '▼'}
+                </span>
+              </div>
+              <div style="height:6px;background:#2d2d2d;border-radius:3px;">
+                <div style="height:6px;width:{bar_pct:.0f}%;background:{bar_color};border-radius:3px;"></div>
+              </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+    with fc2:
+        st.markdown("**Évolution du cours — base 100 (1 an)**")
+        if is_crypto:
+            positions_c = get_positions(asset_class="crypto")
+            id_ov = {p["ticker"]: p["coingecko_id"]
+                     for p in positions_c
+                     if p["ticker"] == ticker and p.get("coingecko_id")}
+            id_ov_tuple = tuple(id_ov.items())
+            with st.spinner("Chargement…"):
+                df_fh = cached_crypto_history((ticker,), 365, id_ov_tuple)
+        else:
+            with st.spinner("Chargement…"):
+                df_fh = cached_history((ticker,), "1y")
+
+        if not df_fh.empty:
+            fig_fh = go.Figure(go.Scatter(
+                x=df_fh.index, y=df_fh.iloc[:, 0], mode="lines",
+                line=dict(width=2, color=acc),
+                fill="tozeroy", fillcolor=acc_alpha,
+                hovertemplate="%{x|%d %b %Y} : %{y:.1f}<extra></extra>",
+            ))
+            fig_fh.add_hline(y=100, line_dash="dot", line_color=_BORDER, line_width=1)
+            fig_fh.update_layout(
+                **_CHART, height=300,
+                xaxis=dict(gridcolor=_BORDER),
+                yaxis=dict(gridcolor=_BORDER, title="Base 100"),
+                hovermode="x unified",
+                margin=dict(l=0, r=0, t=12, b=0),
+            )
+            st.plotly_chart(fig_fh, use_container_width=True)
+        else:
+            st.caption("Historique indisponible pour ce ticker.")
+
+    # ── AI analysis ───────────────────────────────────────────────────────────
+    st.divider()
+    ai_key  = f"fiche_ai_{ticker}_{asset_class}"
+    btn_key = f"fiche_ai_btn_{ticker}_{asset_class}"
+
+    ab1, ab2 = st.columns([2, 6])
+    with ab1:
+        run_ai = st.button(
+            "⚡ Analyser avec l'IA",
+            key=btn_key,
+            type="primary",
+            use_container_width=True,
+        )
+    with ab2:
+        if ai_key in st.session_state:
+            st.caption("Analyse disponible ci-dessous — relance pour actualiser.")
+
+    if run_ai:
+        prompt = build_asset_analysis_prompt(ticker, name, asset_class, row, txs)
+        with st.spinner("Analyse IA en cours…"):
+            result = run_analysis(prompt)
+        st.session_state[ai_key] = result
+
+    if ai_key in st.session_state:
+        results = st.session_state[ai_key]
+        model_labels = {"gemini": "Model Alpha (Gemini)", "groq": "Model Beta (Groq)"}
+        for mk, res in results.items():
+            label = model_labels.get(mk, mk)
+            if res.get("error"):
+                st.warning(f"{label} : {res['error']}")
+            elif res.get("text"):
+                with st.expander(f"📊 {label}", expanded=True):
+                    st.markdown(res["text"])
+
+
 # ── Brand Header ────────────────────────────────────────────────────────────────
 col_brand, col_refresh = st.columns([8, 2])
 with col_brand:
@@ -1003,6 +1187,14 @@ with tab_stocks:
             st.divider()
             st.subheader("Détail des positions")
             st.dataframe(_fmt_df(df), width="stretch", hide_index=True)
+
+            st.divider()
+            st.subheader("Fiche détail — analyse d'un actif")
+            ticker_opts = ["— Sélectionner un actif —"] + sorted(df["Ticker"].tolist())
+            sel_stk = st.selectbox("", ticker_opts, key="fiche_stk_sel",
+                                   label_visibility="collapsed")
+            if sel_stk != "— Sélectionner un actif —":
+                _render_asset_fiche(sel_stk, "stock", df, prices)
 
 
     # ══ STOCKS — Mes positions ═══════════════════════════════════════════════
@@ -1783,6 +1975,14 @@ with tab_crypto:
             st.divider()
             st.subheader("Détail des positions")
             st.dataframe(_fmt_df(df_c), width="stretch", hide_index=True)
+
+            st.divider()
+            st.subheader("Fiche détail — analyse d'une crypto")
+            ticker_opts_c = ["— Sélectionner une crypto —"] + sorted(df_c["Ticker"].tolist())
+            sel_cry = st.selectbox("", ticker_opts_c, key="fiche_cry_sel",
+                                   label_visibility="collapsed")
+            if sel_cry != "— Sélectionner une crypto —":
+                _render_asset_fiche(sel_cry, "crypto", df_c, prices_c)
 
     # ══════════════════════════════════════════════════════════════════════════
     # CRYPTO — Gérer mes positions
