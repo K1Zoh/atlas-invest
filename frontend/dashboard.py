@@ -106,6 +106,17 @@ components.html("""<!DOCTYPE html><html><body style="margin:0;padding:0;overflow
   var vignette = doc.createElement('div');
   vignette.id = 'dot-grid-vignette';
   doc.body.insertBefore(vignette, doc.body.firstChild);
+
+  // ── Scroll-aware floating header ──
+  window.parent.addEventListener('scroll', function() {
+    var header = doc.querySelector('[data-testid="stHeader"]');
+    if (!header) return;
+    if (window.parent.scrollY > 50) {
+      header.classList.add('st-header-scrolled');
+    } else {
+      header.classList.remove('st-header-scrolled');
+    }
+  }, { passive: true });
 })();
 </script>
 </body></html>""", height=1)
@@ -185,9 +196,19 @@ iframe[title="components.html"] {
 
 [data-testid="stHeader"] {
     background-color: rgba(10,10,10,0.82) !important;
-    backdrop-filter: blur(12px) !important;
-    -webkit-backdrop-filter: blur(12px) !important;
+    backdrop-filter: blur(16px) !important;
+    -webkit-backdrop-filter: blur(16px) !important;
     border-bottom: 1px solid rgba(16,185,129,0.18) !important;
+    transition: all 0.3s ease !important;
+}
+[data-testid="stHeader"].st-header-scrolled {
+    width: calc(100% - 64px) !important;
+    left: 32px !important;
+    border-radius: 14px !important;
+    border: 1px solid rgba(45,45,45,0.90) !important;
+    border-bottom: 1px solid rgba(45,45,45,0.90) !important;
+    top: 8px !important;
+    background-color: rgba(10,10,10,0.90) !important;
 }
 [data-testid="stToolbar"] { display: none; }
 
@@ -256,32 +277,46 @@ section[data-testid="stSidebar"] {
     font-weight: 600 !important;
 }
 
-/* ── Tabs ── */
+/* ── Tabs — floating pill nav (HeroHeader style) ── */
 .stTabs [data-baseweb="tab-list"] {
-    gap: 0px !important;
-    border-bottom: 1px solid #2d2d2d !important;
-    background-color: transparent !important;
-    padding-bottom: 0 !important;
+    gap: 3px !important;
+    border-bottom: none !important;
+    background: rgba(13,13,13,0.70) !important;
+    backdrop-filter: blur(16px) !important;
+    -webkit-backdrop-filter: blur(16px) !important;
+    border: 1px solid rgba(45,45,45,0.85) !important;
+    border-radius: 14px !important;
+    padding: 5px !important;
+    margin-bottom: 1.75rem !important;
+    box-shadow: 0 4px 32px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.03) !important;
+    transition: all 0.3s ease !important;
 }
 .stTabs [data-baseweb="tab"] {
-    padding: 0.75rem 1.4rem !important;
-    border-radius: 0px !important;
+    padding: 0.42rem 1.1rem !important;
+    border-radius: 10px !important;
     font-size: 11px !important;
     font-weight: 600 !important;
     text-transform: uppercase !important;
     letter-spacing: 0.07em !important;
-    color: #94a3b8 !important;
-    border-bottom: 2px solid transparent !important;
+    color: rgba(148,163,184,0.75) !important;
+    border: 1px solid transparent !important;
     background-color: transparent !important;
-    margin-bottom: -1px;
     white-space: nowrap !important;
+    margin-bottom: 0 !important;
+    transition: all 0.18s ease !important;
 }
 .stTabs [aria-selected="true"] {
+    background: rgba(16,185,129,0.10) !important;
+    border-color: rgba(16,185,129,0.28) !important;
     color: #10b981 !important;
-    border-bottom: 2px solid #10b981 !important;
-    background-color: transparent !important;
+    text-shadow: 0 0 16px rgba(16,185,129,0.55) !important;
+    box-shadow: inset 0 0 14px rgba(16,185,129,0.08) !important;
 }
-.stTabs [data-baseweb="tab"]:hover { color: #e1e2e8 !important; }
+.stTabs [data-baseweb="tab"]:hover:not([aria-selected="true"]) {
+    color: #e1e2e8 !important;
+    background: rgba(255,255,255,0.04) !important;
+    border-color: rgba(255,255,255,0.06) !important;
+}
 
 /* ── Buttons ── */
 .stButton > button {
@@ -631,12 +666,6 @@ hr { border-color: #2d2d2d !important; margin: 1.25rem 0 !important; }
     border: 1px solid rgba(16,185,129,0.16) !important;
 }
 
-/* Active tab — neon green glow */
-.stTabs [aria-selected="true"] {
-    text-shadow: 0 0 18px rgba(16,185,129,0.60) !important;
-    color: #4edea3 !important;
-    border-bottom-color: #10b981 !important;
-}
 
 /* Pill badge (used in brand header) */
 .st-pill {
