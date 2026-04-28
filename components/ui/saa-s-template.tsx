@@ -39,16 +39,16 @@ const ArrowRight = ({ className = "", size = 16 }: { className?: string; size?: 
   </svg>
 );
 
-const MenuIcon = ({ size = 24 }: { size?: number }) => (
+const MenuIcon = ({ className = "", size = 24 }: { className?: string; size?: number }) => (
   <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24"
-    fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
     <line x1="4" x2="20" y1="12" y2="12" /><line x1="4" x2="20" y1="6" y2="6" /><line x1="4" x2="20" y1="18" y2="18" />
   </svg>
 );
 
-const XIcon = ({ size = 24 }: { size?: number }) => (
+const XIcon = ({ className = "", size = 24 }: { className?: string; size?: number }) => (
   <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24"
-    fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
     <path d="M18 6 6 18" /><path d="m6 6 12 12" />
   </svg>
 );
@@ -68,10 +68,10 @@ const Navigation = React.memo(() => {
             ))}
           </div>
           <div className="hidden md:flex items-center gap-4">
-            <Button variant="ghost" size="sm">Sign in</Button>
-            <Button variant="default" size="sm">Sign Up</Button>
+            <Button type="button" variant="ghost" size="sm">Sign in</Button>
+            <Button type="button" variant="default" size="sm">Sign Up</Button>
           </div>
-          <button className="md:hidden text-white" onClick={() => setOpen(!open)} aria-label="Toggle menu">
+          <button type="button" className="md:hidden text-white" onClick={() => setOpen(!open)} aria-label="Toggle menu">
             {open ? <XIcon /> : <MenuIcon />}
           </button>
         </div>
@@ -85,8 +85,8 @@ const Navigation = React.memo(() => {
                 onClick={() => setOpen(false)}>{label}</a>
             ))}
             <div className="flex flex-col gap-2 pt-4 border-t border-gray-800/50">
-              <Button variant="ghost" size="sm">Sign in</Button>
-              <Button variant="default" size="sm">Sign Up</Button>
+              <Button type="button" variant="ghost" size="sm">Sign in</Button>
+              <Button type="button" variant="default" size="sm">Sign Up</Button>
             </div>
           </div>
         </div>
@@ -109,7 +109,8 @@ const Hero = React.memo(() => (
 
     <aside className="mb-8 inline-flex flex-wrap items-center justify-center gap-2 px-4 py-2 rounded-full border border-gray-700 bg-gray-800/50 backdrop-blur-sm">
       <span className="text-xs text-gray-400">New version of template is out!</span>
-      <a href="#new-version" className="flex items-center gap-1 text-xs text-gray-400 hover:text-white transition-all active:scale-95">
+      <a href="#new-version" className="flex items-center gap-1 text-xs text-gray-400 hover:text-white transition-all active:scale-95"
+        aria-label="Read more about the new version">
         Read more <ArrowRight size={12} />
       </a>
     </aside>
@@ -130,19 +131,20 @@ const Hero = React.memo(() => (
     </p>
 
     <div className="flex items-center gap-4 relative z-10 mb-16">
-      <Button variant="gradient" size="lg" className="rounded-lg">Get started</Button>
+      <Button type="button" variant="gradient" size="lg" className="rounded-lg" aria-label="Get started with the template">
+        Get started
+      </Button>
     </div>
 
     <div className="w-full max-w-5xl relative pb-20">
-      {/* Glow behind dashboard */}
       <div className="absolute left-1/2 w-[90%] pointer-events-none z-0"
         style={{ top: "-23%", transform: "translateX(-50%)" }} aria-hidden="true">
         <img src="https://i.postimg.cc/Ss6yShGy/glows.png" alt="" className="w-full h-auto" loading="eager" />
       </div>
       <div className="relative z-10">
         <img
-          src="https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=1920&q=80"
-          alt="Stock market dashboard"
+          src="https://i.postimg.cc/SKcdVTr1/Dashboard2.png"
+          alt="Dashboard preview showing analytics and metrics interface"
           className="w-full h-auto rounded-lg shadow-2xl border border-white/10"
           loading="eager"
         />

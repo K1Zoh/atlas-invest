@@ -74,89 +74,38 @@ st.set_page_config(
 
 init_db()
 
-# ── Ethereal animated background ────────────────────────────────────────────────
+# ── Dot-grid background ─────────────────────────────────────────────────────────
 components.html("""<!DOCTYPE html><html><body style="margin:0;padding:0;overflow:hidden;background:transparent">
 <script>
 (function() {
   var doc = window.parent.document;
-  if (doc.getElementById('ethereal-bg')) return;
+  if (doc.getElementById('dot-grid-bg')) return;
 
-  // ── Keyframe animations ──
   var style = doc.createElement('style');
-  style.id = 'ethereal-styles';
-  style.textContent = [
-    '@keyframes eth-drift-1{',
-      '0%{transform:translate(0,0) scale(1)}',
-      '33%{transform:translate(5%,-7%) scale(1.10)}',
-      '66%{transform:translate(-3%,4%) scale(0.95)}',
-      '100%{transform:translate(2%,-3%) scale(1.04)}',
-    '}',
-    '@keyframes eth-drift-2{',
-      '0%{transform:translate(0,0) scale(1)}',
-      '33%{transform:translate(-6%,5%) scale(1.14)}',
-      '66%{transform:translate(4%,-3%) scale(0.92)}',
-      '100%{transform:translate(-2%,1%) scale(1.06)}',
-    '}',
-    '@keyframes eth-drift-3{',
-      '0%{transform:translate(0,0) scale(1);opacity:0.6}',
-      '50%{transform:translate(3%,-4%) scale(1.08);opacity:1}',
-      '100%{transform:translate(-2%,3%) scale(0.93);opacity:0.4}',
-    '}'
-  ].join('');
+  style.id = 'dot-grid-styles';
+  style.textContent =
+    '#dot-grid-bg{' +
+      'position:fixed;inset:0;z-index:-1;pointer-events:none;' +
+      'background-color:#0a0a0a;' +
+      'background-image:radial-gradient(circle,rgba(16,185,129,0.18) 1px,transparent 1px);' +
+      'background-size:28px 28px;' +
+    '}' +
+    '#dot-grid-vignette{' +
+      'position:fixed;inset:0;z-index:-1;pointer-events:none;' +
+      'background:' +
+        'radial-gradient(ellipse at 50% 50%,transparent 40%,rgba(10,10,10,0.82) 100%),' +
+        'linear-gradient(to bottom,rgba(10,10,10,0.70) 0%,transparent 18%,transparent 80%,rgba(10,10,10,0.80) 100%)' +
+      ';' +
+    '}';
   doc.head.appendChild(style);
 
-  // ── SVG displacement filter ──
-  var svgNS = 'http://www.w3.org/2000/svg';
-  var svg = doc.createElementNS(svgNS, 'svg');
-  svg.id = 'ethereal-svg';
-  svg.setAttribute('style','position:absolute;width:0;height:0;overflow:hidden;pointer-events:none');
-  svg.setAttribute('aria-hidden','true');
-  svg.innerHTML = '<defs>' +
-    '<filter id="eth-filter" x="-30%" y="-30%" width="160%" height="160%" color-interpolation-filters="sRGB">' +
-      '<feTurbulence result="undulation" numOctaves="2" baseFrequency="0.00035,0.00165" seed="3" type="turbulence"/>' +
-      '<feColorMatrix id="eth-hue" in="undulation" type="hueRotate" values="180"/>' +
-      '<feColorMatrix in="dist" result="circ" type="matrix" values="4 0 0 0 1 4 0 0 0 1 4 0 0 0 1 1 0 0 0 0"/>' +
-      '<feDisplacementMap in="SourceGraphic" in2="circ" scale="75" result="dist"/>' +
-      '<feDisplacementMap in="dist" in2="undulation" scale="75" result="output"/>' +
-    '</filter>' +
-  '</defs>';
-  doc.body.appendChild(svg);
-
-  // ── Background container ──
   var bg = doc.createElement('div');
-  bg.id = 'ethereal-bg';
-  bg.style.cssText = 'position:fixed;inset:0;z-index:-1;overflow:hidden;pointer-events:none;background:linear-gradient(135deg,#0a0a0a 0%,#0d110a 100%)';
-  bg.innerHTML =
-    // Displaced glow layer — cyberpunk neon green + cyan
-    '<div style="position:absolute;inset:-75px;filter:url(#eth-filter) blur(10px)">' +
-      // Primary neon green — bottom-left (Hero radial style)
-      '<div style="position:absolute;bottom:-15%;left:-8%;width:80vw;height:80vh;border-radius:50%;' +
-        'background:radial-gradient(circle,rgba(16,185,129,0.42) 0%,rgba(16,185,129,0.12) 38%,transparent 68%);' +
-        'animation:eth-drift-1 20s ease-in-out infinite alternate"></div>' +
-      // Cyan accent — top-right
-      '<div style="position:absolute;top:-8%;right:-6%;width:65vw;height:65vh;border-radius:50%;' +
-        'background:radial-gradient(circle,rgba(0,212,255,0.16) 0%,rgba(0,180,216,0.05) 42%,transparent 68%);' +
-        'animation:eth-drift-2 24s ease-in-out infinite alternate"></div>' +
-      // Soft pink accent — centre (depth layer)
-      '<div style="position:absolute;top:30%;left:22%;width:50vw;height:50vh;border-radius:50%;' +
-        'background:radial-gradient(circle,rgba(78,222,163,0.06) 0%,transparent 62%);' +
-        'animation:eth-drift-3 28s ease-in-out infinite alternate"></div>' +
-    '</div>' +
-    // Edge vignette
-    '<div style="position:absolute;inset:0;background:' +
-      'linear-gradient(to bottom,rgba(10,10,10,0.55) 0%,transparent 25%,transparent 72%,rgba(10,10,10,0.65) 100%),' +
-      'linear-gradient(to right,rgba(10,10,10,0.28) 0%,transparent 18%,transparent 82%,rgba(10,10,10,0.28) 100%)' +
-    '"></div>';
+  bg.id = 'dot-grid-bg';
   doc.body.insertBefore(bg, doc.body.firstChild);
 
-  // ── Animate SVG hue rotation ──
-  var hue = 0;
-  (function tick() {
-    hue = (hue + 0.22) % 360;
-    var el = doc.getElementById('eth-hue');
-    if (el) el.setAttribute('values', String(hue));
-    requestAnimationFrame(tick);
-  })();
+  var vignette = doc.createElement('div');
+  vignette.id = 'dot-grid-vignette';
+  doc.body.insertBefore(vignette, doc.body.firstChild);
 })();
 </script>
 </body></html>""", height=1)
