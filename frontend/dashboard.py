@@ -606,6 +606,166 @@ hr { border-color: #2d2d2d !important; margin: 1.25rem 0 !important; }
 .status-dot.manual { background-color: #f59e0b; }
 .status-name { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: #e1e2e8; }
 .status-label { font-size: 12px; color: #94a3b8; margin-left: auto; }
+
+/* ── SaaS-template visual upgrades ─────────────────────────────────────────── */
+
+/* Gradient text on KPI values (white → white/55) */
+[data-testid="stMetricValue"] {
+    background: linear-gradient(to bottom, #ffffff 30%, rgba(255,255,255,0.55) 100%) !important;
+    -webkit-background-clip: text !important;
+    -webkit-text-fill-color: transparent !important;
+    background-clip: text !important;
+    letter-spacing: -0.04em !important;
+    font-size: 28px !important;
+    font-weight: 700 !important;
+    line-height: 1.05 !important;
+}
+
+/* Gradient text on section headings */
+.stHeading h1, .stHeading h2 {
+    background: linear-gradient(to bottom, #ffffff 20%, rgba(255,255,255,0.60) 100%) !important;
+    -webkit-background-clip: text !important;
+    -webkit-text-fill-color: transparent !important;
+    background-clip: text !important;
+    letter-spacing: -0.03em !important;
+}
+
+/* Big custom numbers (HHI, concentration…) */
+.hhi-value {
+    background: linear-gradient(to bottom, #ffffff 20%, rgba(255,255,255,0.50) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    letter-spacing: -0.05em;
+}
+
+/* Chart containers — radial purple glow (mimics SaaS glows.png) */
+[data-testid="stPlotlyChart"] {
+    position: relative;
+    isolation: isolate;
+}
+[data-testid="stPlotlyChart"]::before {
+    content: '';
+    position: absolute;
+    top: -35%;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 90%;
+    height: 180%;
+    background: radial-gradient(ellipse at 50% 35%, rgba(155,135,245,0.11) 0%, transparent 65%);
+    pointer-events: none;
+    z-index: -1;
+}
+
+/* Metric label — tighter tracking */
+[data-testid="stMetricLabel"] > div {
+    letter-spacing: 0.08em !important;
+}
+
+/* Gap cards — glassmorphism upgrade */
+.gap-card {
+    background: rgba(15,10,30,0.65) !important;
+    backdrop-filter: blur(12px) !important;
+    -webkit-backdrop-filter: blur(12px) !important;
+    border: 1px solid rgba(45,45,65,0.7) !important;
+    border-left: 3px solid !important;
+}
+.gap-card.high   { border-left-color: #f87171 !important; }
+.gap-card.medium { border-left-color: #f59e0b !important; }
+.gap-card.low    { border-left-color: #10b981 !important; }
+
+/* HHI panel — glassmorphism */
+.hhi-panel {
+    background: rgba(15,10,30,0.65) !important;
+    backdrop-filter: blur(12px) !important;
+    -webkit-backdrop-filter: blur(12px) !important;
+    border: 1px solid rgba(155,135,245,0.16) !important;
+}
+
+/* Active tab — subtle purple glow */
+.stTabs [aria-selected="true"] {
+    text-shadow: 0 0 18px rgba(155,135,245,0.55) !important;
+    color: #c4b5fd !important;
+    border-bottom-color: #9b87f5 !important;
+}
+
+/* Pill badge (used in brand header) */
+.st-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 12px;
+    border-radius: 9999px;
+    border: 1px solid rgba(155,135,245,0.32);
+    background: rgba(155,135,245,0.08);
+    font-size: 9px;
+    letter-spacing: 0.12em;
+    color: rgba(155,135,245,0.80);
+    text-transform: uppercase;
+    backdrop-filter: blur(8px);
+    vertical-align: middle;
+    margin-left: 10px;
+}
+
+/* Expander — glassmorphism */
+[data-testid="stExpander"] {
+    background: rgba(15,10,30,0.65) !important;
+    border: 1px solid rgba(155,135,245,0.13) !important;
+}
+
+/* DataFrames */
+[data-testid="stDataFrame"] {
+    background: rgba(15,10,30,0.65) !important;
+    border: 1px solid rgba(155,135,245,0.13) !important;
+}
+
+/* Inputs — subtle purple focus ring */
+.stTextInput input:focus,
+.stNumberInput input:focus,
+.stTextArea textarea:focus {
+    border-color: rgba(155,135,245,0.55) !important;
+    box-shadow: 0 0 0 2px rgba(155,135,245,0.12) !important;
+}
+
+/* Input bg darker */
+.stTextInput input,
+.stNumberInput input,
+.stTextArea textarea {
+    background: rgba(15,10,30,0.70) !important;
+    border-color: rgba(155,135,245,0.15) !important;
+}
+
+/* Select */
+[data-baseweb="select"] > div:first-child {
+    background: rgba(15,10,30,0.70) !important;
+    border-color: rgba(155,135,245,0.15) !important;
+}
+[data-baseweb="select"] > div:first-child:focus-within {
+    border-color: rgba(155,135,245,0.55) !important;
+}
+[data-baseweb="popover"] {
+    background: #150d27 !important;
+    border: 1px solid rgba(155,135,245,0.20) !important;
+}
+
+/* Forms */
+[data-testid="stForm"] {
+    background: rgba(15,10,30,0.70) !important;
+    border: 1px solid rgba(155,135,245,0.15) !important;
+    box-shadow: 0 4px 32px rgba(0,0,0,0.4) !important;
+}
+
+/* Primary button — gradient white like SaaS template */
+.stButton > button[kind="primary"] {
+    background: linear-gradient(to bottom, #ffffff, rgba(255,255,255,0.85)) !important;
+    color: #0a0613 !important;
+    border: none !important;
+    letter-spacing: 0.04em !important;
+}
+.stButton > button[kind="primary"]:hover {
+    background: linear-gradient(to bottom, #ffffff, rgba(255,255,255,0.95)) !important;
+    transform: scale(1.02);
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -1329,8 +1489,11 @@ col_brand, col_refresh = st.columns([8, 2])
 with col_brand:
     st.markdown("""
     <div style="padding:0.5rem 0 1rem;">
-        <div style="font-size:22px;font-weight:900;color:#10b981;letter-spacing:-0.02em;text-transform:uppercase;line-height:1;">STOCK_TERMINAL</div>
-        <div style="font-size:10px;color:#94a3b8;letter-spacing:0.1em;margin-top:2px;">V.2.0.0 — PERSONAL PORTFOLIO ENGINE</div>
+        <div style="display:flex;align-items:center;gap:10px;">
+            <span style="font-size:26px;font-weight:800;letter-spacing:-0.05em;text-transform:uppercase;line-height:1;background:linear-gradient(to bottom,#ffffff 20%,rgba(255,255,255,0.55) 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">STOCK_TERMINAL</span>
+            <span class="st-pill">v2.0</span>
+        </div>
+        <div style="font-size:10px;color:rgba(155,135,245,0.65);letter-spacing:0.14em;margin-top:4px;text-transform:uppercase;">Personal Portfolio Engine</div>
     </div>
     """, unsafe_allow_html=True)
 with col_refresh:
