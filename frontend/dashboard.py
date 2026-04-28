@@ -129,11 +129,11 @@ components.html("""<!DOCTYPE html><html><body style="margin:0;padding:0;overflow
   bg.innerHTML =
     // Displaced glow layer — cyberpunk neon green + cyan
     '<div style="position:absolute;inset:-75px;filter:url(#eth-filter) blur(10px)">' +
-      // Primary purple — bottom-left (Hero radial style)
+      // Primary neon green — bottom-left (Hero radial style)
       '<div style="position:absolute;bottom:-15%;left:-8%;width:80vw;height:80vh;border-radius:50%;' +
         'background:radial-gradient(circle,rgba(16,185,129,0.42) 0%,rgba(16,185,129,0.12) 38%,transparent 68%);' +
         'animation:eth-drift-1 20s ease-in-out infinite alternate"></div>' +
-      // Deep violet — top-right
+      // Cyan accent — top-right
       '<div style="position:absolute;top:-8%;right:-6%;width:65vw;height:65vh;border-radius:50%;' +
         'background:radial-gradient(circle,rgba(0,212,255,0.16) 0%,rgba(0,180,216,0.05) 42%,transparent 68%);' +
         'animation:eth-drift-2 24s ease-in-out infinite alternate"></div>' +
@@ -639,7 +639,7 @@ hr { border-color: #2d2d2d !important; margin: 1.25rem 0 !important; }
     letter-spacing: -0.05em;
 }
 
-/* Chart containers — radial purple glow (mimics SaaS glows.png) */
+/* Chart containers — radial neon glow (mimics SaaS glows.png) */
 [data-testid="stPlotlyChart"] {
     position: relative;
     isolation: isolate;
@@ -682,7 +682,7 @@ hr { border-color: #2d2d2d !important; margin: 1.25rem 0 !important; }
     border: 1px solid rgba(16,185,129,0.16) !important;
 }
 
-/* Active tab — subtle purple glow */
+/* Active tab — neon green glow */
 .stTabs [aria-selected="true"] {
     text-shadow: 0 0 18px rgba(16,185,129,0.60) !important;
     color: #4edea3 !important;
@@ -719,7 +719,7 @@ hr { border-color: #2d2d2d !important; margin: 1.25rem 0 !important; }
     border: 1px solid rgba(16,185,129,0.13) !important;
 }
 
-/* Inputs — subtle purple focus ring */
+/* Inputs — neon green focus ring */
 .stTextInput input:focus,
 .stNumberInput input:focus,
 .stTextArea textarea:focus {
