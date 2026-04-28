@@ -31,6 +31,7 @@ def init_db():
             "ALTER TABLE transactions ADD COLUMN currency TEXT NOT NULL DEFAULT 'EUR'",
             "ALTER TABLE transactions ADD COLUMN asset_class TEXT DEFAULT 'stock'",
             "ALTER TABLE transactions ADD COLUMN coingecko_id TEXT DEFAULT NULL",
+            "ALTER TABLE transactions ADD COLUMN platform TEXT DEFAULT NULL",
         ]:
             try:
                 conn.execute(migration)
@@ -58,6 +59,50 @@ def init_db():
             conn.commit()
         except Exception:
             pass
+
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS alerts (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                ticker       TEXT    NOT NULL,
+                asset_class  TEXT    NOT NULL DEFAULT 'stock',
+                alert_type   TEXT    NOT NULL,
+                threshold    REAL    NOT NULL,
+                label        TEXT    NOT NULL DEFAULT '',
+                active       INTEGER NOT NULL DEFAULT 1,
+                triggered_at TIMESTAMP DEFAULT NULL,
+                email_sent   INTEGER NOT NULL DEFAULT 0,
+                created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS watchlist (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                ticker       TEXT    NOT NULL,
+                name         TEXT    NOT NULL,
+                asset_class  TEXT    NOT NULL DEFAULT 'stock',
+                coingecko_id TEXT    DEFAULT NULL,
+                note         TEXT    DEFAULT NULL,
+                added_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(ticker, asset_class)
+            )
+        """)
+
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS dividends (
+                id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                ticker            TEXT    NOT NULL,
+                name              TEXT    NOT NULL,
+                ex_date           TEXT    NOT NULL,
+                pay_date          TEXT    DEFAULT NULL,
+                amount_per_share  REAL    NOT NULL,
+                quantity          REAL    NOT NULL,
+                total_received    REAL    NOT NULL,
+                currency          TEXT    NOT NULL DEFAULT 'EUR',
+                notes             TEXT    DEFAULT NULL,
+                created_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
 
         conn.commit()
         _migrate_old_positions(conn)
@@ -129,13 +174,47 @@ def add_transaction(
     currency: str = "EUR",
     asset_class: str = "stock",
     coingecko_id: str | None = None,
+    platform: str | None = None,
 ):
     with get_connection() as conn:
         conn.execute(
             """INSERT INTO transactions
-               (ticker, name, tx_date, quantity, price, fees, currency, asset_class, coingecko_id)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (ticker.upper(), name, tx_date, quantity, price, fees, currency.upper(), asset_class, coingecko_id),
+               (ticker, name, tx_date, quantity, price, fees, currency, asset_class, coingecko_id, platform)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (ticker.upper(), name, tx_date, quantity, price, fees, currency.upper(), asset_class, coingecko_id, platform or None),
+        )
+        conn.commit()
+
+
+def get_position_platform(ticker: str, asset_class: str) -> str | None:
+    """Return the most recently recorded platform for a position, or None."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT platform FROM transactions "
+            "WHERE UPPER(ticker)=? AND COALESCE(asset_class,'stock')=? "
+            "AND platform IS NOT NULL ORDER BY tx_date DESC, id DESC LIMIT 1",
+            (ticker.upper(), asset_class),
+        ).fetchone()
+        return row["platform"] if row else None
+
+
+def update_transaction(
+    tx_id: int,
+    tx_date: str,
+    quantity: float,
+    price: float,
+    fees: float,
+    currency: str,
+    name: str,
+    platform: str | None,
+    coingecko_id: str | None = None,
+) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            """UPDATE transactions SET
+               tx_date=?, quantity=?, price=?, fees=?, currency=?, name=?, platform=?, coingecko_id=?
+               WHERE id=?""",
+            (tx_date, quantity, price, fees, currency.upper(), name, platform or None, coingecko_id or None, tx_id),
         )
         conn.commit()
 
@@ -285,4 +364,94 @@ def update_suggestion_scores(
             "UPDATE ai_suggestions SET analysis_score=?, discipline_score=?, notes=? WHERE id=?",
             (analysis_score, discipline_score, notes, id),
         )
+        conn.commit()
+
+
+# ── Watchlist ──────────────────────────────────────────────────────────────────
+
+def add_watchlist_item(
+    ticker: str,
+    name: str,
+    asset_class: str = "stock",
+    coingecko_id: str | None = None,
+    note: str | None = None,
+) -> int:
+    with get_connection() as conn:
+        cur = conn.execute(
+            """INSERT OR REPLACE INTO watchlist (ticker, name, asset_class, coingecko_id, note)
+               VALUES (?, ?, ?, ?, ?)""",
+            (ticker.upper(), name, asset_class, coingecko_id, note or None),
+        )
+        conn.commit()
+        return cur.lastrowid
+
+
+def get_watchlist(asset_class: str | None = None) -> list[dict]:
+    with get_connection() as conn:
+        if asset_class:
+            rows = conn.execute(
+                "SELECT * FROM watchlist WHERE asset_class=? ORDER BY added_at DESC",
+                (asset_class,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM watchlist ORDER BY asset_class, ticker"
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def delete_watchlist_item(item_id: int) -> None:
+    with get_connection() as conn:
+        conn.execute("DELETE FROM watchlist WHERE id=?", (item_id,))
+        conn.commit()
+
+
+def update_watchlist_note(item_id: int, note: str) -> None:
+    with get_connection() as conn:
+        conn.execute("UPDATE watchlist SET note=? WHERE id=?", (note or None, item_id))
+        conn.commit()
+
+
+# ── Dividends ──────────────────────────────────────────────────────────────────
+
+def add_dividend(
+    ticker: str,
+    name: str,
+    ex_date: str,
+    amount_per_share: float,
+    quantity: float,
+    pay_date: str | None = None,
+    currency: str = "EUR",
+    notes: str | None = None,
+) -> int:
+    total = round(amount_per_share * quantity, 4)
+    with get_connection() as conn:
+        cur = conn.execute(
+            """INSERT INTO dividends
+               (ticker, name, ex_date, pay_date, amount_per_share, quantity, total_received, currency, notes)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (ticker.upper(), name, ex_date, pay_date or None,
+             amount_per_share, quantity, total, currency.upper(), notes or None),
+        )
+        conn.commit()
+        return cur.lastrowid
+
+
+def get_dividends(ticker: str | None = None) -> list[dict]:
+    with get_connection() as conn:
+        if ticker:
+            rows = conn.execute(
+                "SELECT * FROM dividends WHERE UPPER(ticker)=? ORDER BY ex_date DESC",
+                (ticker.upper(),),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM dividends ORDER BY ex_date DESC"
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def delete_dividend(div_id: int) -> None:
+    with get_connection() as conn:
+        conn.execute("DELETE FROM dividends WHERE id=?", (div_id,))
         conn.commit()

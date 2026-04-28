@@ -461,6 +461,58 @@ def get_crypto_prices(
         return {}
 
 
+def get_crypto_raw_history(
+    symbol: str,
+    days: int = 365,
+    id_overrides: dict[str, str] | None = None,
+) -> pd.Series:
+    """Raw EUR prices for a single crypto. Returns pd.Series indexed by date."""
+    upper = symbol.upper()
+    cg_id = (id_overrides or {}).get(upper) or _SYMBOL_TO_ID.get(upper)
+    if not cg_id:
+        cg_id = _resolve_unknown_id(upper) or upper.lower()
+    try:
+        r = requests.get(
+            f"{_COINGECKO_BASE}/coins/{cg_id}/market_chart",
+            params={"vs_currency": "eur", "days": days, "interval": "daily"},
+            timeout=_TIMEOUT,
+        )
+        r.raise_for_status()
+        prices_raw = r.json().get("prices", [])
+        if prices_raw:
+            dates = [pd.Timestamp(p[0], unit="ms").normalize() for p in prices_raw]
+            vals  = [p[1] for p in prices_raw]
+            s = pd.Series(vals, index=dates, name=upper)
+            s.index.name = "Date"
+            s = s.dropna()
+            s = s[~s.index.duplicated(keep="last")]
+            return s
+    except Exception:
+        pass
+    return pd.Series(dtype=float)
+
+
+def get_crypto_multi_raw_history_df(
+    symbols: list[str],
+    days: int = 730,
+    id_overrides: dict[str, str] | None = None,
+) -> pd.DataFrame:
+    """Raw EUR prices for multiple cryptos, forward-filled. Not normalized."""
+    if not symbols:
+        return pd.DataFrame()
+    series = {}
+    for sym in symbols:
+        s = get_crypto_raw_history(sym, days, id_overrides)
+        if not s.empty:
+            series[sym.upper()] = s
+        time.sleep(0.4)
+    if not series:
+        return pd.DataFrame()
+    df = pd.DataFrame(series)
+    df = df[~df.index.duplicated(keep="last")]
+    return df.ffill()
+
+
 def get_crypto_normalized_history(
     symbols: list[str],
     days: int = 365,

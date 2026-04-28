@@ -93,6 +93,62 @@ def get_current_prices(tickers: list[str]) -> dict[str, float]:
     return prices
 
 
+def get_raw_history(ticker: str, period: str = "1y") -> pd.Series:
+    """Raw closing prices for a single ticker. Returns pd.Series indexed by date."""
+    yf_sym = _yf_symbol(ticker)
+    try:
+        df = yf.download(yf_sym, period=period, auto_adjust=True, progress=False, threads=False)
+        if df.empty:
+            return pd.Series(dtype=float)
+        close = df["Close"].squeeze().dropna()
+        close.name = ticker
+        return close
+    except Exception:
+        return pd.Series(dtype=float)
+
+
+def get_ticker_info(ticker: str) -> dict:
+    """Sector, industry, country, brief description from yfinance."""
+    try:
+        info = yf.Ticker(_yf_symbol(ticker)).info
+        summary = info.get("longBusinessSummary", "")
+        if summary and len(summary) > 400:
+            summary = summary[:400].rsplit(" ", 1)[0] + "…"
+        return {
+            "sector":   info.get("sector", ""),
+            "industry": info.get("industry", ""),
+            "country":  info.get("country", ""),
+            "summary":  summary,
+            "currency": info.get("currency", ""),
+            "market_cap": info.get("marketCap"),
+        }
+    except Exception:
+        return {}
+
+
+def get_multi_raw_history_df(tickers: list[str], period: str = "2y") -> pd.DataFrame:
+    """Raw closing prices for multiple tickers, forward-filled. Not normalized."""
+    if not tickers:
+        return pd.DataFrame()
+    dfs = []
+    for t in tickers:
+        yf_sym = _yf_symbol(t)
+        try:
+            df = yf.download(yf_sym, period=period, auto_adjust=True, progress=False, threads=False)
+            if df.empty:
+                continue
+            close = df["Close"].squeeze().dropna()
+            close.name = t
+            dfs.append(close)
+        except Exception:
+            continue
+    if not dfs:
+        return pd.DataFrame()
+    result = pd.concat(dfs, axis=1)
+    result = result[~result.index.duplicated(keep="last")]
+    return result.ffill()
+
+
 def get_normalized_history(tickers: list[str], period: str = "6mo") -> pd.DataFrame:
     """Prix normalisés à 100 à la date de départ. Utilise les symboles YF réels."""
     if not tickers:
@@ -116,3 +172,45 @@ def get_normalized_history(tickers: list[str], period: str = "6mo") -> pd.DataFr
     if not dfs:
         return pd.DataFrame()
     return pd.concat(dfs, axis=1)
+
+
+def get_dividend_info(ticker: str) -> dict:
+    """Fetch dividend metadata for a stock ticker via yfinance.
+
+    Returns a dict with:
+        dividend_rate       – annual dividend per share (currency of the stock)
+        dividend_yield_pct  – annualised yield as a %
+        ex_dividend_date    – next ex-dividend date as ISO string, or None
+        last_dividend_value – most recent dividend paid per share
+        last_dividend_date  – date of last dividend as ISO string, or None
+        payout_ratio        – payout ratio as % (or None)
+        five_year_avg_yield – 5-year average dividend yield %
+    All numeric fields are None when unavailable.
+    """
+    try:
+        info = yf.Ticker(_yf_symbol(ticker)).info
+
+        def _ts_to_iso(ts) -> str | None:
+            if not ts:
+                return None
+            try:
+                return pd.Timestamp(ts, unit="s").date().isoformat()
+            except Exception:
+                return None
+
+        rate  = info.get("dividendRate")
+        yield_dec = info.get("dividendYield")
+        return {
+            "dividend_rate":       float(rate)            if rate       else None,
+            "dividend_yield_pct":  float(yield_dec) * 100 if yield_dec  else None,
+            "ex_dividend_date":    _ts_to_iso(info.get("exDividendDate")),
+            "last_dividend_value": info.get("lastDividendValue"),
+            "last_dividend_date":  _ts_to_iso(info.get("lastDividendDate")),
+            "payout_ratio":        float(info["payoutRatio"]) * 100 if info.get("payoutRatio") else None,
+            "five_year_avg_yield": float(info["fiveYearAvgDividendYield"]) if info.get("fiveYearAvgDividendYield") else None,
+        }
+    except Exception:
+        return {k: None for k in (
+            "dividend_rate", "dividend_yield_pct", "ex_dividend_date",
+            "last_dividend_value", "last_dividend_date", "payout_ratio", "five_year_avg_yield",
+        )}

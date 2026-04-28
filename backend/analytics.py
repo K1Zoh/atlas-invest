@@ -211,21 +211,27 @@ def compute_geographic_allocation(
 ) -> pd.DataFrame:
     """
     Aggregates geographic exposure from stocks + crypto (as 'Décentralisé').
-    Returns columns: Région, Valeur (€), ISO3
+    Returns columns: Région, Valeur (€), ISO3, Détails
     """
     country_val: dict[str, float] = {}
+    country_items: dict[str, list[str]] = {}
 
     if df_stocks is not None:
         for _, row in df_stocks.iterrows():
             val = row.get("Valeur (€)")
             if pd.isna(val) or val is None:
                 val = float(row.get("Investi (€)", 0) or 0)
+            val = float(val)
             country = classify_country(row["Ticker"])
-            country_val[country] = country_val.get(country, 0.0) + float(val)
+            country_val[country] = country_val.get(country, 0.0) + val
+            country_items.setdefault(country, []).append(f"{row['Ticker']} : {val:,.0f} €")
 
     if crypto_total_value > 0:
         country_val["Décentralisé (Crypto)"] = (
             country_val.get("Décentralisé (Crypto)", 0.0) + crypto_total_value
+        )
+        country_items.setdefault("Décentralisé (Crypto)", []).append(
+            f"Crypto : {crypto_total_value:,.0f} €"
         )
 
     rows = []
@@ -234,6 +240,7 @@ def compute_geographic_allocation(
             "Région": country,
             "Valeur (€)": val,
             "ISO3": _COUNTRY_ISO3.get(country),
+            "Détails": "<br>".join(country_items.get(country, [])),
         })
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 
@@ -288,6 +295,107 @@ def compute_risk_metrics(
         "sharpe":             round(sharpe, 2),
         "max_drawdown":       max_drawdown * 100,
     }
+
+
+# ── Portfolio timeline ─────────────────────────────────────────────────────────
+
+def build_portfolio_timeline(
+    all_txs: list[dict],
+    price_df: pd.DataFrame,
+) -> pd.DataFrame:
+    """
+    Reconstructs daily portfolio value from transactions + historical closing prices.
+    price_df: columns = tickers (str), index = dates (DatetimeIndex), values = prices.
+    Returns DataFrame: Date, Valeur (€), Investi (€), PnL (€).
+    """
+    if price_df.empty or not all_txs:
+        return pd.DataFrame()
+
+    txs_sorted = sorted(all_txs, key=lambda x: x["tx_date"])
+    holdings: dict[str, float] = {}
+    total_invested = 0.0
+    tx_idx = 0
+    rows = []
+
+    for date in price_df.index:
+        date_str = date.strftime("%Y-%m-%d")
+        # Apply all transactions up to this date
+        while tx_idx < len(txs_sorted) and txs_sorted[tx_idx]["tx_date"] <= date_str:
+            t = txs_sorted[tx_idx]
+            tk = t["ticker"]
+            qty = float(t["quantity"])
+            holdings[tk] = holdings.get(tk, 0.0) + qty
+            if qty > 0:
+                total_invested += qty * float(t["price"]) + float(t.get("fees") or 0)
+            tx_idx += 1
+
+        if total_invested == 0:
+            continue
+
+        # Calculate portfolio value at this date
+        value = 0.0
+        for tk, qty in holdings.items():
+            if qty > 1e-8 and tk in price_df.columns:
+                p = price_df.at[date, tk]
+                if pd.notna(p):
+                    value += qty * float(p)
+
+        rows.append({
+            "Date":       date,
+            "Valeur (€)": round(value, 2),
+            "Investi (€)": round(total_invested, 2),
+            "PnL (€)":    round(value - total_invested, 2),
+        })
+
+    return pd.DataFrame(rows) if rows else pd.DataFrame()
+
+
+# ── DCA simulator ──────────────────────────────────────────────────────────────
+
+def simulate_dca(
+    price_series: pd.Series,
+    monthly_amount: float,
+    start_date: pd.Timestamp,
+) -> pd.DataFrame:
+    """
+    Simulates monthly DCA vs lump sum on a single asset.
+    Returns DataFrame: Date, DCA Valeur, DCA Investi, Lump Sum Valeur, Lump Sum Investi.
+    """
+    prices = price_series[price_series.index >= start_date].dropna()
+    if prices.empty or monthly_amount <= 0:
+        return pd.DataFrame()
+
+    # Count how many monthly investments will occur (for lump sum budget)
+    monthly_dates = pd.date_range(start_date, prices.index[-1], freq="MS")
+    n_periods = len(monthly_dates)
+    total_budget = monthly_amount * n_periods
+
+    # Lump sum: buy everything at start price
+    ls_qty = total_budget / float(prices.iloc[0])
+
+    dca_qty     = 0.0
+    dca_invested = 0.0
+    next_invest  = start_date
+    rows = []
+
+    for date, price in prices.items():
+        if price <= 0:
+            continue
+        # DCA: invest on the first trading day of each calendar month
+        if date >= next_invest:
+            dca_qty      += monthly_amount / price
+            dca_invested += monthly_amount
+            next_invest   = (date + pd.DateOffset(months=1)).replace(day=1)
+
+        rows.append({
+            "Date":              date,
+            "DCA — Valeur":      round(dca_qty * price, 2),
+            "DCA — Investi":     round(dca_invested, 2),
+            "Lump Sum — Valeur": round(ls_qty * price, 2),
+            "Lump Sum — Investi": round(total_budget, 2),
+        })
+
+    return pd.DataFrame(rows) if rows else pd.DataFrame()
 
 
 # ── AI scoreboard ──────────────────────────────────────────────────────────────

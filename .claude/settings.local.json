@@ -35,7 +35,20 @@
       "Bash(git push *)",
       "Bash(python -c ' *)",
       "Bash(python3 -c ' *)",
-      "Bash(.venv/bin/python3 -c ' *)"
+      "Bash(.venv/bin/python3 -c ' *)",
+      "Bash(head -n 712 /Users/test/K1Zoh/stock-market-analyzer/frontend/dashboard.py)",
+      "Read(//tmp/**)",
+      "Bash(.venv/bin/python -m py_compile frontend/dashboard.py)",
+      "Bash(.venv/bin/python -m py_compile backend/crypto_collectors.py)",
+      "Bash(.venv/bin/python -c ' *)",
+      "Bash(sqlite3 /Users/test/K1Zoh/stock-market-analyzer/data/portfolio.db \"SELECT * FROM transactions WHERE asset_class='crypto' ORDER BY tx_date;\")",
+      "Bash(python3 -)",
+      "Bash(sqlite3 /Users/test/K1Zoh/stock-market-analyzer/data/portfolio.db \"SELECT id, tx_date, quantity, price, fees FROM transactions WHERE asset_class='crypto' AND ticker='KAS' ORDER BY tx_date, id;\")",
+      "Bash(sqlite3 data/portfolio.db \"SELECT id, tx_date, quantity, price, fees FROM transactions WHERE asset_class='crypto' ORDER BY tx_date, id;\")",
+      "Bash(sqlite3 /Users/test/K1Zoh/stock-market-analyzer/data/portfolio.db \"SELECT asset_class, ticker, COUNT\\(*\\) as nb_tx, SUM\\(quantity\\) as net_qty FROM transactions GROUP BY asset_class, ticker ORDER BY asset_class, ticker;\")",
+      "Bash(sqlite3 /Users/test/K1Zoh/stock-market-analyzer/data/portfolio.db \"SELECT id, ticker, asset_class, tx_date, quantity, price FROM transactions ORDER BY created_at DESC LIMIT 20;\")",
+      "Bash(grep -v \"^--$\")",
+      "Bash(.venv/bin/python -c \"import streamlit; print\\(streamlit.__version__\\)\")"
     ]
   }
 }

@@ -9,8 +9,10 @@ from datetime import date as _date
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import streamlit as st
+import streamlit.components.v1 as components
 import plotly.express as px
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import pandas as pd
 from dotenv import load_dotenv
 
@@ -18,11 +20,19 @@ load_dotenv(Path(__file__).parent.parent / ".env")
 
 from backend.db import (
     init_db, get_positions, delete_position,
-    add_transaction, delete_transaction, get_transactions,
+    add_transaction, update_transaction, delete_transaction, get_transactions,
     save_suggestion, get_suggestions, update_suggestion_scores,
+    add_watchlist_item, get_watchlist, delete_watchlist_item, update_watchlist_note,
+    add_dividend, get_dividends, delete_dividend,
 )
-from backend.collectors import search_tickers, verify_ticker, get_current_prices, get_normalized_history
-from backend.crypto_collectors import search_crypto, verify_crypto, get_crypto_prices, get_crypto_normalized_history
+from backend.collectors import (
+    search_tickers, verify_ticker, get_current_prices, get_normalized_history,
+    get_raw_history, get_ticker_info, get_multi_raw_history_df, get_dividend_info,
+)
+from backend.crypto_collectors import (
+    search_crypto, verify_crypto, get_crypto_prices, get_crypto_normalized_history,
+    get_crypto_raw_history, get_crypto_multi_raw_history_df,
+)
 from backend.analytics import (
     build_portfolio_df, portfolio_summary,
     compute_hhi, compute_concentration_alerts,
@@ -31,8 +41,25 @@ from backend.analytics import (
     classify_crypto_category, compute_crypto_sector_allocation,
     compute_crypto_concentration_alerts, compute_crypto_investment_gaps,
     compute_geographic_allocation, compute_risk_metrics,
+    build_portfolio_timeline, simulate_dca,
 )
 from backend.crypto_importer import import_crypto_csv
+from backend.alerts import (
+    add_alert, get_alerts, delete_alert, rearm_alert,
+    check_alerts, send_alert_email, smtp_configured,
+    ALERT_PURPOSE_META,
+)
+from backend.notifiers import (
+    send_telegram, send_discord,
+    telegram_configured, discord_configured,
+    send_telegram_test, send_discord_test,
+)
+from backend.exchanges import (
+    get_exchanges_for_asset, build_exchange_url, get_exchange_info,
+    CRYPTO_PLATFORM_NAMES, STOCK_PLATFORM_NAMES,
+)
+from backend.db import get_position_platform
+
 from backend.analyzers.prompt import build_analysis_prompt
 from backend.analyzers.crypto_prompt import build_crypto_analysis_prompt
 from backend.analyzers.runner import run_analysis
@@ -46,6 +73,197 @@ st.set_page_config(
 )
 
 init_db()
+
+# ── Ethereal animated background ────────────────────────────────────────────────
+components.html("""<!DOCTYPE html><html><body style="margin:0;padding:0;overflow:hidden;background:transparent">
+<script>
+(function() {
+  var doc = window.parent.document;
+  if (doc.getElementById('ethereal-bg')) return;
+
+  // ── Keyframe animations ──
+  var style = doc.createElement('style');
+  style.id = 'ethereal-styles';
+  style.textContent = [
+    '@keyframes eth-drift-1{',
+      '0%{transform:translate(0,0) scale(1)}',
+      '33%{transform:translate(5%,-7%) scale(1.10)}',
+      '66%{transform:translate(-3%,4%) scale(0.95)}',
+      '100%{transform:translate(2%,-3%) scale(1.04)}',
+    '}',
+    '@keyframes eth-drift-2{',
+      '0%{transform:translate(0,0) scale(1)}',
+      '33%{transform:translate(-6%,5%) scale(1.14)}',
+      '66%{transform:translate(4%,-3%) scale(0.92)}',
+      '100%{transform:translate(-2%,1%) scale(1.06)}',
+    '}',
+    '@keyframes eth-drift-3{',
+      '0%{transform:translate(0,0) scale(1);opacity:0.6}',
+      '50%{transform:translate(3%,-4%) scale(1.08);opacity:1}',
+      '100%{transform:translate(-2%,3%) scale(0.93);opacity:0.4}',
+    '}'
+  ].join('');
+  doc.head.appendChild(style);
+
+  // ── SVG displacement filter ──
+  var svgNS = 'http://www.w3.org/2000/svg';
+  var svg = doc.createElementNS(svgNS, 'svg');
+  svg.id = 'ethereal-svg';
+  svg.setAttribute('style','position:absolute;width:0;height:0;overflow:hidden;pointer-events:none');
+  svg.setAttribute('aria-hidden','true');
+  svg.innerHTML = '<defs>' +
+    '<filter id="eth-filter" x="-30%" y="-30%" width="160%" height="160%" color-interpolation-filters="sRGB">' +
+      '<feTurbulence result="undulation" numOctaves="2" baseFrequency="0.00035,0.00165" seed="3" type="turbulence"/>' +
+      '<feColorMatrix id="eth-hue" in="undulation" type="hueRotate" values="180"/>' +
+      '<feColorMatrix in="dist" result="circ" type="matrix" values="4 0 0 0 1 4 0 0 0 1 4 0 0 0 1 1 0 0 0 0"/>' +
+      '<feDisplacementMap in="SourceGraphic" in2="circ" scale="75" result="dist"/>' +
+      '<feDisplacementMap in="dist" in2="undulation" scale="75" result="output"/>' +
+    '</filter>' +
+  '</defs>';
+  doc.body.appendChild(svg);
+
+  // ── Background container ──
+  var bg = doc.createElement('div');
+  bg.id = 'ethereal-bg';
+  bg.style.cssText = 'position:fixed;inset:0;z-index:-1;overflow:hidden;pointer-events:none;background:#090911';
+  bg.innerHTML =
+    // Displaced glow layer
+    '<div style="position:absolute;inset:-75px;filter:url(#eth-filter) blur(10px)">' +
+      // Emerald — bottom-left
+      '<div style="position:absolute;bottom:-15%;left:-8%;width:80vw;height:80vh;border-radius:50%;' +
+        'background:radial-gradient(circle,rgba(16,185,129,0.40) 0%,rgba(16,185,129,0.12) 38%,transparent 68%);' +
+        'animation:eth-drift-1 20s ease-in-out infinite alternate"></div>' +
+      // Violet — top-right
+      '<div style="position:absolute;top:-8%;right:-6%;width:65vw;height:65vh;border-radius:50%;' +
+        'background:radial-gradient(circle,rgba(139,92,246,0.32) 0%,rgba(99,102,241,0.10) 42%,transparent 68%);' +
+        'animation:eth-drift-2 24s ease-in-out infinite alternate"></div>' +
+      // Amber accent — centre
+      '<div style="position:absolute;top:30%;left:22%;width:50vw;height:50vh;border-radius:50%;' +
+        'background:radial-gradient(circle,rgba(251,191,36,0.10) 0%,transparent 62%);' +
+        'animation:eth-drift-3 28s ease-in-out infinite alternate"></div>' +
+    '</div>' +
+    // Edge vignette
+    '<div style="position:absolute;inset:0;background:' +
+      'linear-gradient(to bottom,rgba(9,9,17,0.55) 0%,transparent 25%,transparent 72%,rgba(9,9,17,0.65) 100%),' +
+      'linear-gradient(to right,rgba(9,9,17,0.30) 0%,transparent 18%,transparent 82%,rgba(9,9,17,0.30) 100%)' +
+    '"></div>';
+  doc.body.insertBefore(bg, doc.body.firstChild);
+
+  // ── Animate SVG hue rotation ──
+  var hue = 0;
+  (function tick() {
+    hue = (hue + 0.22) % 360;
+    var el = doc.getElementById('eth-hue');
+    if (el) el.setAttribute('values', String(hue));
+    requestAnimationFrame(tick);
+  })();
+})();
+</script>
+</body></html>""", height=1)
+
+# ── Dot-matrix canvas (adapted from CanvasRevealEffect shader) ─────────────────
+components.html("""<!DOCTYPE html><html><body style="margin:0;padding:0;overflow:hidden;background:transparent">
+<script>
+(function() {
+  var doc = window.parent.document;
+  if (doc.getElementById('dot-matrix-canvas')) return;
+
+  var canvas = doc.createElement('canvas');
+  canvas.id = 'dot-matrix-canvas';
+  canvas.style.cssText = [
+    'position:fixed', 'inset:0', 'width:100vw', 'height:100vh',
+    'z-index:0', 'pointer-events:none',
+    'opacity:0.28', 'mix-blend-mode:screen'
+  ].join(';');
+
+  var ctx = canvas.getContext('2d');
+
+  // Grid parameters (matching DotMatrix defaults)
+  var TOTAL = 22;   // cell size in px
+  var DOT   = 2.5;  // dot radius
+  var SPEED = 0.28; // reveal speed multiplier
+  var FREQ  = 5;    // flicker frequency (seconds)
+
+  // Deterministic hash → [0,1)
+  function h(x, y) {
+    var s = Math.sin(x * 127.1 + y * 311.7) * 43758.5453123;
+    return s - Math.floor(s);
+  }
+
+  var cells = [];
+  var startTime = performance.now();
+
+  function buildCells() {
+    canvas.width  = window.innerWidth;
+    canvas.height = window.innerHeight;
+    cells = [];
+
+    var cols = Math.ceil(canvas.width  / TOTAL) + 1;
+    var rows = Math.ceil(canvas.height / TOTAL) + 1;
+    var cx = cols / 2, cy = rows / 2;
+
+    // Offset grid to center like the shader
+    var offX = Math.abs(Math.floor((canvas.width  % TOTAL - DOT) * 0.5));
+    var offY = Math.abs(Math.floor((canvas.height % TOTAL - DOT) * 0.5));
+
+    for (var r = 0; r < rows; r++) {
+      for (var c = 0; c < cols; c++) {
+        var dist  = Math.sqrt((c - cx) * (c - cx) + (r - cy) * (r - cy));
+        var seed  = h(c, r);
+        // Timing: intro from center (matches timing_offset_intro in shader)
+        var timing = dist * 0.012 + seed * 0.18;
+        cells.push({
+          c: c, r: r,
+          x: c * TOTAL - offX,
+          y: r * TOTAL - offY,
+          timing: timing,
+          seed: seed
+        });
+      }
+    }
+  }
+
+  buildCells();
+  window.addEventListener('resize', buildCells);
+
+  var OP_BUCKETS = [0.3, 0.3, 0.3, 0.5, 0.5, 0.5, 0.8, 0.8, 0.8, 1.0];
+
+  function frame() {
+    var elapsed = (performance.now() - startTime) / 1000;
+    var t = elapsed * SPEED;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    var len = cells.length;
+    for (var i = 0; i < len; i++) {
+      var cell = cells[i];
+
+      // Reveal: dot fades in when elapsed passes its timing offset
+      if (t < cell.timing) continue;
+      var reveal = Math.min(1.0, (t - cell.timing) / 0.10);
+
+      // Periodic flicker: re-pick opacity bucket every FREQ seconds
+      var tick = Math.floor(elapsed / FREQ + cell.seed + FREQ);
+      var s2   = h(cell.c * 7.3 + tick, cell.r * 3.7 + tick);
+      var base = OP_BUCKETS[Math.floor(s2 * 10)] * reveal;
+
+      // Subtle pulse
+      var pulse = 0.82 + 0.18 * Math.sin(elapsed * 1.8 + cell.seed * 6.28318);
+
+      var alpha = base * pulse * 0.50;
+      if (alpha < 0.01) continue; // skip invisible dots
+
+      ctx.fillStyle = 'rgba(255,255,255,' + alpha.toFixed(3) + ')';
+      ctx.fillRect(cell.x, cell.y, DOT, DOT);
+    }
+    requestAnimationFrame(frame);
+  }
+
+  frame();
+  doc.body.appendChild(canvas);
+})();
+</script>
+</body></html>""", height=1)
 
 # ── Design system ───────────────────────────────────────────────────────────────
 _C_GAIN    = "#10b981"   # emerald-500
@@ -70,6 +288,8 @@ _CHART = dict(
 _PALETTE = [_C_GAIN, _C_ACCENT, "#60a5fa", "#c084fc", "#fb923c",
             "#34d399", "#fbbf24", "#a78bfa", "#f472b6", "#38bdf8"]
 
+_PFU = 0.30   # Prélèvement Forfaitaire Unique : 12.8% IR + 17.2% prélèvements sociaux
+
 _TICKER_RE = re.compile(r"^[A-Z0-9.\-]{1,20}$")
 _PRIORITY_LABEL = {
     "high":   ("PRIORITÉ HAUTE",   _C_LOSS),
@@ -85,20 +305,51 @@ st.markdown("""
 /* ── Font (scoped to app content only, not icon fonts) ── */
 [data-testid="stAppViewContainer"] { font-family: 'Space Grotesk', sans-serif; }
 
+/* ── Root & body transparent so fixed ethereal bg shows through ── */
+html, body {
+    background-color: transparent !important;
+    background: transparent !important;
+}
+
+/* ── Hide the 1px injection iframes ── */
+iframe[title="components.html"] {
+    display: block !important;
+    height: 1px !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+}
+
 /* ── Backgrounds ── */
+[data-testid="stApp"],
 [data-testid="stAppViewContainer"],
 [data-testid="stAppViewContainer"] > .main,
-.main { background-color: #121212 !important; }
+[data-testid="stMain"],
+.main {
+    background-color: transparent !important;
+    background: transparent !important;
+}
+
+/* Ensure Streamlit content sits above the fixed ethereal bg */
+[data-testid="stAppViewContainer"] {
+    position: relative !important;
+    z-index: 1 !important;
+}
 
 [data-testid="stHeader"] {
-    background-color: #1a1a1a !important;
-    border-bottom: 1px solid #2d2d2d !important;
+    background-color: rgba(9,9,17,0.75) !important;
+    backdrop-filter: blur(12px) !important;
+    -webkit-backdrop-filter: blur(12px) !important;
+    border-bottom: 1px solid rgba(16,185,129,0.15) !important;
 }
 [data-testid="stToolbar"] { display: none; }
 
 section[data-testid="stSidebar"] {
-    background-color: #1a1a1a !important;
-    border-right: 1px solid #2d2d2d !important;
+    background-color: rgba(15,15,22,0.88) !important;
+    backdrop-filter: blur(16px) !important;
+    -webkit-backdrop-filter: blur(16px) !important;
+    border-right: 1px solid rgba(45,45,45,0.6) !important;
 }
 
 .main .block-container {
@@ -114,19 +365,28 @@ section[data-testid="stSidebar"] {
 
 /* ── KPI / Metric cards ── */
 [data-testid="metric-container"] {
-    background-color: #1a1a1a !important;
-    border: 1px solid #2d2d2d !important;
+    background-color: rgba(20,20,30,0.72) !important;
+    backdrop-filter: blur(14px) !important;
+    -webkit-backdrop-filter: blur(14px) !important;
+    border: 1px solid rgba(16,185,129,0.18) !important;
     border-radius: 0px !important;
     padding: 1.2rem 1.4rem !important;
     position: relative;
     overflow: hidden;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.04) !important;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease !important;
+}
+[data-testid="metric-container"]:hover {
+    border-color: rgba(16,185,129,0.40) !important;
+    box-shadow: 0 4px 32px rgba(16,185,129,0.08), 0 4px 24px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.04) !important;
 }
 [data-testid="metric-container"]::before {
     content: '';
     position: absolute;
     top: 0; left: 0;
     width: 3px; height: 100%;
-    background-color: #10b981;
+    background: linear-gradient(to bottom, #10b981, rgba(16,185,129,0.3));
+    box-shadow: 0 0 8px rgba(16,185,129,0.5);
 }
 [data-testid="stMetricLabel"] > div {
     font-size: 11px !important;
@@ -209,8 +469,10 @@ hr { border-color: #2d2d2d !important; margin: 1.25rem 0 !important; }
 
 /* ── Expanders ── */
 [data-testid="stExpander"] {
-    background-color: #1a1a1a !important;
-    border: 1px solid #2d2d2d !important;
+    background-color: rgba(20,20,30,0.70) !important;
+    backdrop-filter: blur(12px) !important;
+    -webkit-backdrop-filter: blur(12px) !important;
+    border: 1px solid rgba(45,45,65,0.7) !important;
     border-radius: 0px !important;
 }
 [data-testid="stExpander"] details summary {
@@ -281,10 +543,13 @@ hr { border-color: #2d2d2d !important; margin: 1.25rem 0 !important; }
 
 /* ── Forms ── */
 [data-testid="stForm"] {
-    background-color: #1a1a1a !important;
-    border: 1px solid #2d2d2d !important;
+    background-color: rgba(20,20,30,0.78) !important;
+    backdrop-filter: blur(14px) !important;
+    -webkit-backdrop-filter: blur(14px) !important;
+    border: 1px solid rgba(45,45,65,0.7) !important;
     border-radius: 0px !important;
     padding: 1.25rem !important;
+    box-shadow: 0 2px 20px rgba(0,0,0,0.3) !important;
 }
 [data-testid="stFormSubmitButton"] button {
     border-radius: 0px !important;
@@ -302,9 +567,11 @@ hr { border-color: #2d2d2d !important; margin: 1.25rem 0 !important; }
 
 /* ── DataFrames ── */
 [data-testid="stDataFrame"] {
-    border: 1px solid #2d2d2d !important;
+    border: 1px solid rgba(45,45,65,0.7) !important;
     border-radius: 0px !important;
-    background-color: #1a1a1a !important;
+    background-color: rgba(20,20,30,0.70) !important;
+    backdrop-filter: blur(10px) !important;
+    -webkit-backdrop-filter: blur(10px) !important;
 }
 
 /* ── File uploader ── */
@@ -330,8 +597,11 @@ hr { border-color: #2d2d2d !important; margin: 1.25rem 0 !important; }
 
 /* ── Custom components ── */
 .term-panel {
-    background-color: #1a1a1a;
-    border: 1px solid #2d2d2d;
+    background-color: rgba(20,20,30,0.74);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border: 1px solid rgba(16,185,129,0.14);
+    box-shadow: 0 2px 20px rgba(0,0,0,0.35);
     padding: 1.25rem 1.5rem;
     margin-bottom: 1rem;
 }
@@ -346,8 +616,11 @@ hr { border-color: #2d2d2d !important; margin: 1.25rem 0 !important; }
     border-bottom: 1px solid #2d2d2d;
 }
 .model-card {
-    background-color: #1a1a1a;
-    border: 1px solid #2d2d2d;
+    background-color: rgba(20,20,30,0.74);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border: 1px solid rgba(45,45,65,0.7);
+    box-shadow: 0 2px 20px rgba(0,0,0,0.35);
     padding: 1.25rem;
     height: 100%;
     position: relative;
@@ -454,6 +727,7 @@ for key, default in [
     ("crypto_prefill_id", ""),
     ("crypto_price_hint", None),
     ("crypto_last_analysis", None),
+    ("editing_tx_id", None),   # ID of the transaction currently being edited
 ]:
     if key not in st.session_state:
         st.session_state[key] = default
@@ -490,6 +764,38 @@ def cached_history(tickers_tuple: tuple, period: str) -> pd.DataFrame:
 def cached_crypto_history(tickers_tuple: tuple, days: int, id_overrides_tuple: tuple = ()) -> pd.DataFrame:
     id_overrides = dict(id_overrides_tuple) if id_overrides_tuple else None
     return get_crypto_normalized_history(list(tickers_tuple), days, id_overrides=id_overrides)
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def cached_raw_history(ticker: str, period: str) -> pd.Series:
+    return get_raw_history(ticker, period)
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def cached_crypto_raw_history(ticker: str, days: int, id_overrides_tuple: tuple = ()) -> pd.Series:
+    id_overrides = dict(id_overrides_tuple) if id_overrides_tuple else None
+    return get_crypto_raw_history(ticker, days, id_overrides=id_overrides)
+
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def cached_ticker_info(ticker: str) -> dict:
+    return get_ticker_info(ticker)
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def cached_dividend_info(ticker: str) -> dict:
+    return get_dividend_info(ticker)
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def cached_multi_raw_history(tickers_tuple: tuple, period: str) -> pd.DataFrame:
+    return get_multi_raw_history_df(list(tickers_tuple), period)
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def cached_crypto_multi_raw_history(tickers_tuple: tuple, days: int, id_overrides_tuple: tuple = ()) -> pd.DataFrame:
+    id_overrides = dict(id_overrides_tuple) if id_overrides_tuple else None
+    return get_crypto_multi_raw_history_df(list(tickers_tuple), days, id_overrides)
 
 
 def _color_val(v):
@@ -690,7 +996,80 @@ def _render_hhi_panel(hhi: float, low_thresh: float, mid_thresh: float, accent: 
     """, unsafe_allow_html=True)
 
 
-# ── Asset fiche ─────────────────────────────────────────────────────────────────
+# ── Exchange / broker links ──────────────────────────────────────────────────────
+
+def _render_exchange_links(ticker: str, asset_class: str, compact: bool = False) -> None:
+    """Popover with exchange/broker links. Highlights the platform stored for this position."""
+    preferred = get_position_platform(ticker, asset_class)
+    exchanges  = get_exchanges_for_asset(asset_class)
+    note = (
+        "Vérifie que la paire EUR ou USDT est disponible sur chaque plateforme."
+        if asset_class == "crypto"
+        else "Disponibilité selon la bourse de cotation de l'action."
+    )
+
+    label = "▶ ACHETER" if not compact else "▶"
+    with st.popover(label):
+        st.markdown(
+            f"<div style='font-size:10px;color:{_MUTED};text-transform:uppercase;"
+            f"letter-spacing:0.08em;margin-bottom:10px;padding-bottom:8px;"
+            f"border-bottom:1px solid {_BORDER};'>Acheter — {ticker}</div>",
+            unsafe_allow_html=True,
+        )
+
+        # Preferred platform first
+        ordered = sorted(exchanges, key=lambda e: (0 if e["name"] == preferred else 1))
+
+        for ex in ordered:
+            url          = build_exchange_url(ex["name"], ticker)
+            color        = ex["color"]
+            is_preferred = ex["name"] == preferred
+            badge = (
+                f"<span style='font-size:9px;background:{color};color:#000;"
+                f"padding:1px 5px;font-weight:900;letter-spacing:0.05em;"
+                f"text-transform:uppercase;margin-left:7px;'>TON EXCHANGE</span>"
+                if is_preferred else ""
+            )
+            border = f"2px solid {color}" if is_preferred else f"1px solid {color}50"
+            bg     = f"{color}30"         if is_preferred else f"{color}18"
+            st.markdown(
+                f"<a href='{url}' target='_blank' rel='noopener noreferrer' style='"
+                f"display:flex;align-items:center;justify-content:space-between;"
+                f"background:{bg};border:{border};color:{color};"
+                f"padding:9px 13px;margin:5px 0;text-decoration:none;"
+                f"font-size:12px;font-weight:700;letter-spacing:0.04em;'>"
+                f"<span>{ex['name']}{badge}&nbsp;&nbsp;→</span>"
+                f"<span style='font-size:10px;color:{_MUTED};font-weight:400;"
+                f"text-align:right;max-width:160px;'>{ex['desc']}</span>"
+                f"</a>",
+                unsafe_allow_html=True,
+            )
+        st.caption(note)
+
+
+# ── Technical indicator helpers ─────────────────────────────────────────────────
+
+def _compute_ma(series: pd.Series, window: int) -> pd.Series:
+    return series.rolling(window).mean()
+
+
+def _compute_rsi(series: pd.Series, period: int = 14) -> pd.Series:
+    delta = series.diff()
+    gain  = delta.clip(lower=0).ewm(com=period - 1, adjust=False).mean()
+    loss  = (-delta.clip(upper=0)).ewm(com=period - 1, adjust=False).mean()
+    rs    = gain / loss.replace(0, float("nan"))
+    return 100 - 100 / (1 + rs)
+
+
+def _compute_macd(series: pd.Series, fast: int = 12, slow: int = 26, signal: int = 9):
+    ema_fast = series.ewm(span=fast, adjust=False).mean()
+    ema_slow = series.ewm(span=slow, adjust=False).mean()
+    macd     = ema_fast - ema_slow
+    sig      = macd.ewm(span=signal, adjust=False).mean()
+    return macd, sig, macd - sig
+
+
+# ── Asset fiche (rewritten) ─────────────────────────────────────────────────────
 
 def _render_asset_fiche(ticker: str, asset_class: str, df: pd.DataFrame, prices: dict):
     from backend.analyzers.asset_prompt import build_asset_analysis_prompt
@@ -711,133 +1090,299 @@ def _render_asset_fiche(ticker: str, asset_class: str, df: pd.DataFrame, prices:
     name     = row["Nom"]
     qty      = row["Qté"]
 
-    has_price = pd.notna(value)
-    gain_color = _C_GAIN if (has_price and gain >= 0) else _C_LOSS
+    has_price  = pd.notna(value)
+    gain_color = _C_GAIN if (has_price and pd.notna(gain) and gain >= 0) else _C_LOSS
+    is_crypto  = asset_class == "crypto"
+    acc        = _C_CRYPTO if is_crypto else _C_GAIN
+    acc_alpha  = "rgba(247,147,26,0.12)" if is_crypto else "rgba(16,185,129,0.12)"
+    badge_bg   = "#f7931a22" if is_crypto else "#10b98122"
+    badge_fg   = _C_CRYPTO if is_crypto else _C_GAIN
+    badge_lbl  = "₿  CRYPTO" if is_crypto else "◈  STOCK / ETF"
 
     def _m(v, fmt=".2f", suffix=" €"):
         return f"{v:{fmt}}{suffix}" if pd.notna(v) else "N/A"
 
-    is_crypto = asset_class == "crypto"
-    badge_bg  = "#f7931a22" if is_crypto else "#10b98122"
-    badge_fg  = _C_CRYPTO if is_crypto else _C_GAIN
-    badge_lbl = "₿  CRYPTO" if is_crypto else "◈  STOCK / ETF"
-    acc       = _C_CRYPTO if is_crypto else _C_GAIN
-    acc_alpha = "rgba(247,147,26,0.07)" if is_crypto else "rgba(16,185,129,0.07)"
-
-    # ── Header card ───────────────────────────────────────────────────────────
+    # ── KPI header ────────────────────────────────────────────────────────────
+    pnl_arrow = "▲" if (has_price and pd.notna(gain) and gain >= 0) else "▼"
     st.markdown(f"""
-    <div style="background:{_SURFACE};border:1px solid {_BORDER};border-radius:12px;
-                padding:1.25rem 1.5rem 1rem;margin-bottom:1.25rem;">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
+    <div style="background:{_SURFACE};border:1px solid {_BORDER};
+                padding:1.25rem 1.5rem 1rem;margin-bottom:1rem;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.9rem;">
         <div>
-          <span style="font-size:22px;font-weight:700;color:{_TEXT};letter-spacing:-0.02em;">{ticker}</span>
-          <span style="font-size:14px;color:{_MUTED};margin-left:0.75rem;">{name}</span>
+          <span style="font-size:24px;font-weight:700;color:{_TEXT};letter-spacing:-0.02em;">{ticker}</span>
+          <span style="font-size:13px;color:{_MUTED};margin-left:0.75rem;">{name}</span>
         </div>
-        <span style="background:{badge_bg};color:{badge_fg};padding:4px 12px;border-radius:20px;
-                     font-size:11px;font-weight:600;letter-spacing:0.05em;">{badge_lbl}</span>
+        <span style="background:{badge_bg};color:{badge_fg};padding:4px 12px;
+                     border:1px solid {badge_fg}33;font-size:10px;font-weight:700;
+                     letter-spacing:0.08em;text-transform:uppercase;">{badge_lbl}</span>
       </div>
-      <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:1rem;">
-        <div>
-          <div style="font-size:10px;color:{_MUTED};letter-spacing:0.06em;margin-bottom:4px;">INVESTI</div>
-          <div style="font-size:18px;font-weight:600;">{_m(invested, ',.2f')}</div>
-        </div>
-        <div>
-          <div style="font-size:10px;color:{_MUTED};letter-spacing:0.06em;margin-bottom:4px;">VALEUR</div>
-          <div style="font-size:18px;font-weight:600;">{_m(value, ',.2f')}</div>
-        </div>
-        <div>
-          <div style="font-size:10px;color:{_MUTED};letter-spacing:0.06em;margin-bottom:4px;">GAIN / PERTE</div>
-          <div style="font-size:18px;font-weight:600;color:{gain_color};">{_m(gain, '+,.2f')}</div>
-        </div>
-        <div>
-          <div style="font-size:10px;color:{_MUTED};letter-spacing:0.06em;margin-bottom:4px;">PERFORMANCE</div>
-          <div style="font-size:18px;font-weight:600;color:{gain_color};">{_m(perf, '+.2f', '%')}</div>
-        </div>
-        <div>
-          <div style="font-size:10px;color:{_MUTED};letter-spacing:0.06em;margin-bottom:4px;">COURS ACTUEL</div>
-          <div style="font-size:18px;font-weight:600;">{_m(current, ',.4f')}</div>
-        </div>
+      <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:0.75rem;">
+        <div><div style="font-size:9px;color:{_MUTED};letter-spacing:0.07em;margin-bottom:3px;">INVESTI</div>
+             <div style="font-size:16px;font-weight:600;">{_m(invested,',.2f')}</div></div>
+        <div><div style="font-size:9px;color:{_MUTED};letter-spacing:0.07em;margin-bottom:3px;">VALEUR ACTUELLE</div>
+             <div style="font-size:16px;font-weight:600;">{_m(value,',.2f')}</div></div>
+        <div><div style="font-size:9px;color:{_MUTED};letter-spacing:0.07em;margin-bottom:3px;">GAIN / PERTE</div>
+             <div style="font-size:16px;font-weight:600;color:{gain_color};">{pnl_arrow} {_m(gain,'+,.2f')}</div></div>
+        <div><div style="font-size:9px;color:{_MUTED};letter-spacing:0.07em;margin-bottom:3px;">PERFORMANCE</div>
+             <div style="font-size:16px;font-weight:600;color:{gain_color};">{_m(perf,'+.2f','%')}</div></div>
+        <div><div style="font-size:9px;color:{_MUTED};letter-spacing:0.07em;margin-bottom:3px;">PRU</div>
+             <div style="font-size:16px;font-weight:600;">{_m(pru,',.4f')}</div></div>
+        <div><div style="font-size:9px;color:{_MUTED};letter-spacing:0.07em;margin-bottom:3px;">COURS ACTUEL</div>
+             <div style="font-size:16px;font-weight:600;">{_m(current,',.4f')}</div></div>
       </div>
     </div>
     """, unsafe_allow_html=True)
 
-    # ── Two-column body: transactions | chart ─────────────────────────────────
-    fc1, fc2 = st.columns([1, 1.6])
+    # ── Buy button ───────────────────────────────────────────────────────────
+    _fiche_b1, _fiche_b2 = st.columns([1, 5])
+    with _fiche_b1:
+        _render_exchange_links(ticker, asset_class)
 
-    with fc1:
-        st.markdown("**Historique des transactions**")
-        if txs:
-            tx_rows = []
-            for t in txs:
-                is_buy = t["quantity"] >= 0
-                tx_rows.append({
-                    "Date":     t["tx_date"],
-                    "Type":     "Achat" if is_buy else "Retrait",
-                    "Quantité": f"{t['quantity']:+.4f}",
-                    "Prix":     f"{t['price']:.6f} €",
-                    "Total":    f"{abs(t['quantity'] * t['price']):.2f} €",
-                    "Frais":    f"{t['fees']:.2f} €" if t["fees"] else "—",
-                })
-            st.dataframe(pd.DataFrame(tx_rows), hide_index=True, use_container_width=True)
-        else:
-            st.caption("Aucune transaction enregistrée.")
+    # ── Asset description ─────────────────────────────────────────────────────
+    if is_crypto:
+        from backend.analytics import classify_crypto_category
+        cat = classify_crypto_category(ticker)
+        st.markdown(
+            f'<div style="margin-bottom:0.75rem;">'
+            f'<span style="background:#1e293b;border:1px solid {acc}44;color:{acc};padding:2px 10px;'
+            f'font-size:10px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;">{cat}</span>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+    else:
+        with st.spinner("Infos…"):
+            info = cached_ticker_info(ticker)
+        if info:
+            tags = [t for t in [info.get("sector"), info.get("industry"), info.get("country")] if t]
+            tags_html = "".join(
+                f'<span style="background:#1e293b;border:1px solid {_BORDER};color:{_MUTED};'
+                f'padding:2px 10px;font-size:10px;font-weight:700;letter-spacing:0.06em;'
+                f'text-transform:uppercase;margin-right:6px;">{t}</span>'
+                for t in tags
+            )
+            cap = ""
+            if info.get("market_cap"):
+                cap = (f'  <span style="color:{_MUTED};font-size:11px;">'
+                       f'Market cap : {info["market_cap"]/1e9:.1f} Md {info.get("currency","")}</span>')
+            st.markdown(f'<div style="margin-bottom:0.5rem;">{tags_html}{cap}</div>', unsafe_allow_html=True)
+            if info.get("summary"):
+                st.caption(info["summary"])
 
-        # PRU vs cours actuel mini-gauge
-        if has_price and pru > 0:
-            ratio = current / pru
-            bar_color = _C_GAIN if ratio >= 1 else _C_LOSS
-            bar_pct   = min(100, ratio * 50)   # 100% pru → 50%; 200% → 100%
-            st.markdown(f"""
-            <div style="margin-top:1rem;background:{_SURFACE};border:1px solid {_BORDER};
-                        border-radius:8px;padding:0.75rem 1rem;">
-              <div style="font-size:10px;color:{_MUTED};letter-spacing:0.06em;margin-bottom:6px;">
-                COURS vs PRU
-              </div>
-              <div style="display:flex;justify-content:space-between;font-size:12px;
-                          color:{_TEXT};margin-bottom:6px;">
-                <span>PRU : {pru:.4f} €</span>
-                <span style="color:{bar_color};font-weight:600;">
-                  {ratio:+.1%} {'▲' if ratio >= 1 else '▼'}
-                </span>
-              </div>
-              <div style="height:6px;background:#2d2d2d;border-radius:3px;">
-                <div style="height:6px;width:{bar_pct:.0f}%;background:{bar_color};border-radius:3px;"></div>
-              </div>
-            </div>
-            """, unsafe_allow_html=True)
+    # ── Period selector ───────────────────────────────────────────────────────
+    period_opts = {"6 mois": ("6mo", 180), "1 an": ("1y", 365), "2 ans": ("2y", 730)}
+    _pc1, _pc2 = st.columns([3, 5])
+    with _pc1:
+        p_sel = st.radio("Période", list(period_opts.keys()), index=1,
+                         horizontal=True, key=f"fiche_period_{ticker}_{asset_class}")
+    yf_period, cg_days = period_opts[p_sel]
 
-    with fc2:
-        st.markdown("**Évolution du cours — base 100 (1 an)**")
+    # ── Indicator toggles ────────────────────────────────────────────────────
+    with _pc2:
+        _ic1, _ic2, _ic3, _ic4, _ic5 = st.columns(5)
+        show_ma20  = _ic1.checkbox("MA20",  value=False, key=f"ma20_{ticker}_{asset_class}")
+        show_ma50  = _ic2.checkbox("MA50",  value=False, key=f"ma50_{ticker}_{asset_class}")
+        show_ma200 = _ic3.checkbox("MA200", value=False, key=f"ma200_{ticker}_{asset_class}")
+        show_rsi   = _ic4.checkbox("RSI",   value=False, key=f"rsi_{ticker}_{asset_class}")
+        show_macd  = _ic5.checkbox("MACD",  value=False, key=f"macd_{ticker}_{asset_class}")
+
+    # ── Fetch raw price history ───────────────────────────────────────────────
+    with st.spinner("Chargement du cours…"):
         if is_crypto:
             positions_c = get_positions(asset_class="crypto")
             id_ov = {p["ticker"]: p["coingecko_id"]
                      for p in positions_c
                      if p["ticker"] == ticker and p.get("coingecko_id")}
-            id_ov_tuple = tuple(id_ov.items())
-            with st.spinner("Chargement…"):
-                df_fh = cached_crypto_history((ticker,), 365, id_ov_tuple)
+            price_series = cached_crypto_raw_history(ticker, cg_days, tuple(id_ov.items()))
         else:
-            with st.spinner("Chargement…"):
-                df_fh = cached_history((ticker,), "1y")
+            price_series = cached_raw_history(ticker, yf_period)
 
-        if not df_fh.empty:
-            fig_fh = go.Figure(go.Scatter(
-                x=df_fh.index, y=df_fh.iloc[:, 0], mode="lines",
-                line=dict(width=2, color=acc),
-                fill="tozeroy", fillcolor=acc_alpha,
-                hovertemplate="%{x|%d %b %Y} : %{y:.1f}<extra></extra>",
-            ))
-            fig_fh.add_hline(y=100, line_dash="dot", line_color=_BORDER, line_width=1)
-            fig_fh.update_layout(
-                **_CHART, height=300,
-                xaxis=dict(gridcolor=_BORDER),
-                yaxis=dict(gridcolor=_BORDER, title="Base 100"),
-                hovermode="x unified",
-                margin=dict(l=0, r=0, t=12, b=0),
+    # ── Price chart with indicators ───────────────────────────────────────────
+    if not price_series.empty:
+        n_rows   = 1 + int(show_macd) + int(show_rsi)
+        row_heights = [1.0]
+        if show_macd: row_heights.append(0.35)
+        if show_rsi:  row_heights.append(0.3)
+
+        if n_rows > 1:
+            fig_p = make_subplots(
+                rows=n_rows, cols=1,
+                shared_xaxes=True,
+                vertical_spacing=0.04,
+                row_heights=row_heights,
             )
-            st.plotly_chart(fig_fh, use_container_width=True)
         else:
-            st.caption("Historique indisponible pour ce ticker.")
+            fig_p = go.Figure()
+
+        def _add(trace, row=1, col=1):
+            if n_rows > 1:
+                fig_p.add_trace(trace, row=row, col=col)
+            else:
+                fig_p.add_trace(trace)
+
+        # Price line
+        _add(go.Scatter(
+            x=price_series.index, y=price_series.values,
+            mode="lines", name="Cours",
+            line=dict(width=2, color=acc),
+            fill="tozeroy" if n_rows == 1 else None,
+            fillcolor=acc_alpha if n_rows == 1 else None,
+            hovertemplate="%{x|%d %b %Y}<br><b>%{y:,.4f}</b><extra></extra>",
+        ))
+
+        # Moving averages
+        _MA_COLORS = {20: "#facc15", 50: "#60a5fa", 200: "#f472b6"}
+        for window, show in [(20, show_ma20), (50, show_ma50), (200, show_ma200)]:
+            if show and len(price_series) >= window:
+                ma = _compute_ma(price_series, window)
+                _add(go.Scatter(
+                    x=ma.index, y=ma.values, mode="lines",
+                    name=f"MA{window}",
+                    line=dict(width=1.5, color=_MA_COLORS[window], dash="dot"),
+                    hovertemplate=f"MA{window}: %{{y:,.4f}}<extra></extra>",
+                ))
+
+        # Buy / sell markers
+        buys_x, buys_y, buys_text = [], [], []
+        sells_x, sells_y, sells_text = [], [], []
+        for t in txs:
+            tx_date = pd.Timestamp(t["tx_date"])
+            if tx_date in price_series.index:
+                marker_y = float(price_series[tx_date])
+            else:
+                closest = price_series.index.asof(tx_date)
+                marker_y = float(price_series[closest]) if closest is not pd.NaT else t["price"]
+            total = abs(t["quantity"] * t["price"])
+            label = (f"{'Achat' if t['quantity']>=0 else 'Vente'}<br>"
+                     f"Qté : {abs(t['quantity']):.4f}<br>"
+                     f"Prix : {t['price']:,.4f} €<br>Total : {total:,.2f} €")
+            if t["quantity"] >= 0:
+                buys_x.append(tx_date); buys_y.append(marker_y); buys_text.append(label)
+            else:
+                sells_x.append(tx_date); sells_y.append(marker_y); sells_text.append(label)
+
+        if buys_x:
+            _add(go.Scatter(
+                x=buys_x, y=buys_y, mode="markers", name="Achat",
+                marker=dict(symbol="triangle-up", size=12, color=_C_GAIN,
+                            line=dict(color="#ffffff", width=1)),
+                text=buys_text, hovertemplate="%{text}<extra></extra>",
+            ))
+        if sells_x:
+            _add(go.Scatter(
+                x=sells_x, y=sells_y, mode="markers", name="Vente",
+                marker=dict(symbol="triangle-down", size=12, color=_C_LOSS,
+                            line=dict(color="#ffffff", width=1)),
+                text=sells_text, hovertemplate="%{text}<extra></extra>",
+            ))
+
+        if pru and pd.notna(pru) and pru > 0:
+            if n_rows > 1:
+                fig_p.add_hline(y=pru, line_dash="dot", line_color=_MUTED, line_width=1,
+                                annotation_text=f"PRU {pru:,.4f}",
+                                annotation_position="bottom right",
+                                annotation_font=dict(color=_MUTED, size=10),
+                                row=1, col=1)
+            else:
+                fig_p.add_hline(y=pru, line_dash="dot", line_color=_MUTED, line_width=1,
+                                annotation_text=f"PRU {pru:,.4f}",
+                                annotation_position="bottom right",
+                                annotation_font=dict(color=_MUTED, size=10))
+
+        # MACD panel
+        _macd_row = 2 if show_macd else None
+        if show_macd and len(price_series) >= 26:
+            macd_line, sig_line, hist = _compute_macd(price_series)
+            hist_colors = [_C_GAIN if v >= 0 else _C_LOSS for v in hist.fillna(0)]
+            fig_p.add_trace(go.Bar(
+                x=hist.index, y=hist.values, name="MACD Histo",
+                marker_color=hist_colors, opacity=0.6,
+                hovertemplate="Histo: %{y:,.4f}<extra></extra>",
+            ), row=_macd_row, col=1)
+            fig_p.add_trace(go.Scatter(
+                x=macd_line.index, y=macd_line.values, mode="lines",
+                name="MACD", line=dict(width=1.5, color="#60a5fa"),
+                hovertemplate="MACD: %{y:,.4f}<extra></extra>",
+            ), row=_macd_row, col=1)
+            fig_p.add_trace(go.Scatter(
+                x=sig_line.index, y=sig_line.values, mode="lines",
+                name="Signal", line=dict(width=1.5, color="#f59e0b", dash="dot"),
+                hovertemplate="Signal: %{y:,.4f}<extra></extra>",
+            ), row=_macd_row, col=1)
+            fig_p.update_yaxes(title_text="MACD", title_font=dict(size=9, color=_MUTED),
+                               gridcolor=_BORDER, row=_macd_row, col=1)
+
+        # RSI panel
+        _rsi_row = (2 if (show_rsi and not show_macd) else 3) if show_rsi else None
+        if show_rsi and len(price_series) >= 14:
+            rsi = _compute_rsi(price_series)
+            fig_p.add_trace(go.Scatter(
+                x=rsi.index, y=rsi.values, mode="lines",
+                name="RSI(14)", line=dict(width=1.5, color="#a78bfa"),
+                hovertemplate="RSI: %{y:.1f}<extra></extra>",
+            ), row=_rsi_row, col=1)
+            fig_p.add_hline(y=70, line_dash="dot", line_color=_C_LOSS,  line_width=1,
+                            row=_rsi_row, col=1)
+            fig_p.add_hline(y=30, line_dash="dot", line_color=_C_GAIN,  line_width=1,
+                            row=_rsi_row, col=1)
+            fig_p.update_yaxes(title_text="RSI", title_font=dict(size=9, color=_MUTED),
+                               range=[0, 100], gridcolor=_BORDER, row=_rsi_row, col=1)
+
+        total_height = 320 + int(show_macd) * 140 + int(show_rsi) * 120
+        layout_kw = {**_CHART, "margin": dict(l=0, r=0, t=8, b=0)}
+        layout_kw.update(
+            height=total_height, hovermode="x unified",
+            legend=dict(orientation="h", yanchor="bottom", y=1.01, x=0),
+            showlegend=bool(buys_x or sells_x or show_ma20 or show_ma50 or show_ma200
+                            or show_rsi or show_macd),
+        )
+        if n_rows > 1:
+            layout_kw["xaxis"] = dict(gridcolor=_BORDER, showticklabels=False)
+            layout_kw[f"xaxis{n_rows}"] = dict(gridcolor=_BORDER)
+            layout_kw["yaxis"] = dict(gridcolor=_BORDER)
+        else:
+            layout_kw["xaxis"] = dict(gridcolor=_BORDER)
+            layout_kw["yaxis"] = dict(gridcolor=_BORDER)
+        fig_p.update_layout(**layout_kw)
+        st.plotly_chart(fig_p, use_container_width=True)
+    else:
+        st.caption("Historique de prix indisponible pour ce ticker.")
+
+    # ── Transaction history ───────────────────────────────────────────────────
+    with st.expander("Historique des transactions", expanded=False):
+        if txs:
+            tx_rows = []
+            for t in txs:
+                is_buy = t["quantity"] >= 0
+                tx_rows.append({
+                    "Date": t["tx_date"], "Type": "Achat" if is_buy else "Vente",
+                    "Quantité": f"{abs(t['quantity']):.6f}",
+                    "Prix": f"{t['price']:,.6f} €",
+                    "Total": f"{abs(t['quantity'] * t['price']):,.2f} €",
+                    "Frais": f"{t['fees']:.2f} €" if t["fees"] else "—",
+                })
+            st.dataframe(pd.DataFrame(tx_rows), hide_index=True, use_container_width=True)
+            total_bought = sum(abs(t["quantity"] * t["price"]) for t in txs if t["quantity"] >= 0)
+            st.caption(f"{sum(1 for t in txs if t['quantity']>=0)} achat(s) · "
+                       f"{total_bought:,.2f} € investis · Qté : {qty:.6f}")
+        else:
+            st.caption("Aucune transaction enregistrée.")
+
+        if has_price and pd.notna(pru) and pru > 0:
+            ratio     = current / pru
+            bar_color = _C_GAIN if ratio >= 1 else _C_LOSS
+            bar_pct   = min(100, ratio * 50)
+            st.markdown(f"""
+            <div style="margin-top:0.75rem;background:{_SURFACE};border:1px solid {_BORDER};
+                        padding:0.75rem 1rem;">
+              <div style="font-size:10px;color:{_MUTED};letter-spacing:0.06em;margin-bottom:6px;">COURS vs PRU</div>
+              <div style="display:flex;justify-content:space-between;font-size:12px;color:{_TEXT};margin-bottom:6px;">
+                <span>PRU : {pru:,.4f} €</span>
+                <span style="color:{bar_color};font-weight:600;">{ratio:.2f}× {'▲' if ratio>=1 else '▼'}</span>
+              </div>
+              <div style="height:4px;background:#2d2d2d;">
+                <div style="height:4px;width:{bar_pct:.0f}%;background:{bar_color};"></div>
+              </div>
+            </div>""", unsafe_allow_html=True)
 
     # ── AI analysis ───────────────────────────────────────────────────────────
     st.divider()
@@ -846,15 +1391,11 @@ def _render_asset_fiche(ticker: str, asset_class: str, df: pd.DataFrame, prices:
 
     ab1, ab2 = st.columns([2, 6])
     with ab1:
-        run_ai = st.button(
-            "⚡ Analyser avec l'IA",
-            key=btn_key,
-            type="primary",
-            use_container_width=True,
-        )
+        run_ai = st.button("▶ RECOMMANDATION IA", key=btn_key, type="primary",
+                           use_container_width=True)
     with ab2:
         if ai_key in st.session_state:
-            st.caption("Analyse disponible ci-dessous — relance pour actualiser.")
+            st.caption("Analyse en cache — cliquez pour actualiser.")
 
     if run_ai:
         prompt = build_asset_analysis_prompt(ticker, name, asset_class, row, txs)
@@ -870,8 +1411,20 @@ def _render_asset_fiche(ticker: str, asset_class: str, df: pd.DataFrame, prices:
             if res.get("error"):
                 st.warning(f"{label} : {res['error']}")
             elif res.get("text"):
-                with st.expander(f"📊 {label}", expanded=True):
+                with st.expander(f"◎ {label}", expanded=True):
                     st.markdown(res["text"])
+
+
+@st.dialog("Fiche de l'actif", width="large")
+def _show_fiche_dialog(ticker: str, asset_class: str, df: "pd.DataFrame", prices: dict):
+    _render_asset_fiche(ticker, asset_class, df, prices)
+
+
+def _maybe_open_fiche(ticker: str, asset_class: str, df: "pd.DataFrame", prices: dict):
+    key = (ticker, asset_class)
+    if key != st.session_state.get("_fiche_last"):
+        st.session_state["_fiche_last"] = key
+        _show_fiche_dialog(ticker, asset_class, df, prices)
 
 
 # ── Brand Header ────────────────────────────────────────────────────────────────
@@ -889,15 +1442,82 @@ with col_refresh:
     if st.button("↻ ACTUALISER", use_container_width=True):
         st.rerun()
 
-tab_dashboard, tab_stocks, tab_crypto = st.tabs([
-    "▣  Dashboard",
-    "◈  Actions / ETF",
-    "₿  Crypto",
-])
-
 # Load data once per script run — no caching needed, st.rerun() guarantees fresh data
 _df_stocks, _prices_stocks = load_portfolio()
 _df_crypto, _prices_crypto = load_crypto_portfolio()
+
+# ── Alert check (once per session load) ────────────────────────────────────────
+if "alerts_checked" not in st.session_state:
+    st.session_state["alerts_checked"] = True
+    _active_alerts = get_alerts(active_only=True)
+    if _active_alerts:
+        _all_prices: dict[str, float] = {}
+        _all_prices.update(_prices_stocks or {})
+        _all_prices.update(_prices_crypto or {})
+        _missing_stk = [a["ticker"] for a in _active_alerts
+                        if a["asset_class"] == "stock" and a["ticker"] not in _all_prices]
+        _missing_cry = [a["ticker"] for a in _active_alerts
+                        if a["asset_class"] == "crypto" and a["ticker"] not in _all_prices]
+        if _missing_stk:
+            try: _all_prices.update(get_current_prices(_missing_stk))
+            except Exception: pass
+        if _missing_cry:
+            try: _all_prices.update(get_crypto_prices(_missing_cry))
+            except Exception: pass
+        _triggered = check_alerts(_all_prices)
+        if _triggered:
+            st.session_state["alert_banners"] = _triggered
+            if smtp_configured():
+                _ok, _err = send_alert_email(_triggered)
+                st.session_state["alert_mail_ok"]  = _ok
+                st.session_state["alert_mail_err"] = _err
+            if telegram_configured():
+                send_telegram(_triggered)
+            if discord_configured():
+                send_discord(_triggered)
+
+# ── Alert banners (shown above tabs) ────────────────────────────────────────────
+if st.session_state.get("alert_banners"):
+    _banners = st.session_state["alert_banners"]
+    _mail_note = ""
+    if st.session_state.get("alert_mail_ok") is True:
+        _mail_note = "  ·  mail envoyé"
+    elif st.session_state.get("alert_mail_err"):
+        _mail_note = f"  ·  mail échoué : {st.session_state['alert_mail_err'][:60]}"
+    _brows = ""
+    for _b in _banners:
+        _bm = ALERT_PURPOSE_META.get(_b["alert_type"], ALERT_PURPOSE_META["above"])
+        _bc = _C_GAIN if _bm["condition"] == "above" else _C_LOSS
+        _bd = _bm["icon"]
+        _bl = _b.get("label") or _bm["label"]
+        _brows += (
+            f"<span style='margin-right:20px;'>"
+            f"<span style='color:{_MUTED};'>{_b['ticker']}</span>"
+            f"&nbsp;<span style='color:{_bc};font-weight:700;'>{_bd} {_bl}</span>"
+            f"&nbsp;<span style='color:{_TEXT};'>{_b.get('current_price',0):,.4f}</span>"
+            f"&nbsp;<span style='color:{_MUTED};font-size:10px;'>seuil {_b['threshold']:,.4f}</span>"
+            f"</span>"
+        )
+    st.markdown(
+        f"<div style='background:#1a0a0a;border:1px solid {_C_LOSS};"
+        f"border-left:3px solid {_C_LOSS};padding:0.75rem 1.25rem;"
+        f"margin-bottom:0.75rem;display:flex;align-items:center;gap:12px;flex-wrap:wrap;'>"
+        f"<span style='font-size:10px;font-weight:700;text-transform:uppercase;"
+        f"letter-spacing:0.08em;color:{_C_LOSS};white-space:nowrap;'>◉ ALERTE</span>"
+        f"<span style='font-size:13px;flex:1;'>{_brows}</span>"
+        f"<span style='font-size:10px;color:{_MUTED};white-space:nowrap;'>{_mail_note}</span>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
+tab_dashboard, tab_stocks, tab_crypto, tab_alerts, tab_watchlist, tab_fiscal = st.tabs([
+    "▣  Dashboard",
+    "◈  Actions / ETF",
+    "₿  Crypto",
+    "◉  Alertes",
+    "◎  Watchlist",
+    "📊  Fiscal",
+])
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -925,7 +1545,7 @@ with tab_dashboard:
         total_pos     = (len(df) if has_stocks else 0) + (len(df_c_ov) if has_crypto_ov else 0)
 
         # ── KPIs globaux ──────────────────────────────────────────────────────
-        k1, k2, k3, k4 = st.columns(4)
+        k1, k2, k3, k4, k5 = st.columns(5)
         k1.metric("Capital total investi", f"{glob_invested:,.0f} €")
         k2.metric("Valeur totale du portefeuille", f"{glob_value:,.0f} €")
         k3.metric(
@@ -934,6 +1554,154 @@ with tab_dashboard:
             delta=f"{glob_gain_pct:+.2f}%",
         )
         k4.metric("Positions totales", total_pos)
+        _pfu_latent = max(glob_gain, 0) * _PFU
+        k5.metric(
+            "Fiscalité latente (PFU 30%)",
+            f"−{_pfu_latent:,.0f} €" if _pfu_latent > 0 else "—",
+            help="Estimation PFU 30% (12.8% IR + 17.2% PS) sur la plus-value nette latente si tout est vendu aujourd'hui.",
+        )
+
+        # ── Évolution du portefeuille ─────────────────────────────────────────
+        st.divider()
+        st.subheader("Évolution du portefeuille")
+        _tl_opts = {"6 mois": ("6mo", 180), "1 an": ("1y", 365), "2 ans": ("2y", 730)}
+        _tl_label = st.radio("Période", list(_tl_opts.keys()), index=1,
+                             horizontal=True, key="tl_period")
+        _tl_yf_period, _tl_days = _tl_opts[_tl_label]
+        all_stk_txs = get_transactions(asset_class="stock")
+        all_cry_txs = get_transactions(asset_class="crypto")
+        _stk_tks = list({t["ticker"] for t in all_stk_txs}) if all_stk_txs else []
+        _cry_tks = list({t["ticker"] for t in all_cry_txs}) if all_cry_txs else []
+        with st.spinner("Reconstruction de l'historique…"):
+            _df_stk_raw = cached_multi_raw_history(tuple(_stk_tks), _tl_yf_period) if _stk_tks else pd.DataFrame()
+            _cry_id_ov  = {p["ticker"]: p["coingecko_id"] for p in get_positions("crypto") if p.get("coingecko_id")}
+            _df_cry_raw = cached_crypto_multi_raw_history(
+                tuple(_cry_tks), _tl_days, tuple(_cry_id_ov.items())
+            ) if _cry_tks else pd.DataFrame()
+        if not _df_stk_raw.empty:
+            _df_stk_raw = _df_stk_raw[~_df_stk_raw.index.duplicated(keep="last")]
+        if not _df_cry_raw.empty:
+            _df_cry_raw = _df_cry_raw[~_df_cry_raw.index.duplicated(keep="last")]
+        _price_combined = pd.concat(
+            [_d for _d in [_df_stk_raw, _df_cry_raw] if not _d.empty], axis=1
+        ).ffill() if (_stk_tks or _cry_tks) else pd.DataFrame()
+        _tl_df = build_portfolio_timeline(all_stk_txs + all_cry_txs, _price_combined)
+        if not _tl_df.empty:
+            _tl_is_gain    = _tl_df["PnL (€)"].iloc[-1] >= 0
+            _tl_color      = _C_GAIN if _tl_is_gain else _C_LOSS
+            _tl_fill_lo    = "rgba(16,185,129,0.08)" if _tl_is_gain else "rgba(248,113,113,0.08)"
+            _tl_fill_hi    = "rgba(16,185,129,0.12)" if _tl_is_gain else "rgba(248,113,113,0.12)"
+            fig_tl = go.Figure()
+            fig_tl.add_trace(go.Scatter(
+                x=_tl_df["Date"], y=_tl_df["Valeur (€)"], name="Valeur", mode="lines",
+                line=dict(width=2.5, color=_tl_color), fill="tozeroy", fillcolor=_tl_fill_lo,
+                hovertemplate="%{x|%d %b %Y}<br>Valeur : <b>%{y:,.0f} €</b><extra></extra>",
+            ))
+            fig_tl.add_trace(go.Scatter(
+                x=_tl_df["Date"], y=_tl_df["Investi (€)"], name="Investi", mode="lines",
+                line=dict(width=1.5, color=_MUTED, dash="dot"),
+                hovertemplate="%{x|%d %b %Y}<br>Investi : <b>%{y:,.0f} €</b><extra></extra>",
+            ))
+            fig_tl.add_trace(go.Scatter(
+                x=pd.concat([_tl_df["Date"], _tl_df["Date"][::-1]]),
+                y=pd.concat([_tl_df["Valeur (€)"], _tl_df["Investi (€)"][::-1]]),
+                fill="toself", fillcolor=_tl_fill_hi,
+                line=dict(width=0), showlegend=False, hoverinfo="skip",
+            ))
+            fig_tl.update_layout(
+                **{**_CHART, "margin": dict(l=0, r=0, t=8, b=0)},
+                height=340, hovermode="x unified",
+                xaxis=dict(gridcolor=_BORDER), yaxis=dict(gridcolor=_BORDER, title="€"),
+                legend=dict(orientation="h", yanchor="bottom", y=1.01, x=0),
+            )
+            st.plotly_chart(fig_tl, use_container_width=True)
+            _last = _tl_df.iloc[-1]
+            _pnl_pct = (_last["PnL (€)"] / _last["Investi (€)"] * 100) if _last["Investi (€)"] > 0 else 0
+            _sc1, _sc2, _sc3 = st.columns(3)
+            _sc1.metric("Valeur actuelle", f"{_last['Valeur (€)']:,.0f} €")
+            _sc2.metric("Capital investi", f"{_last['Investi (€)']:,.0f} €")
+            _sc3.metric("P&L latent", f"{_last['PnL (€)']:+,.0f} €", delta=f"{_pnl_pct:+.2f}%")
+        else:
+            st.caption("Historique de prix insuffisant pour reconstruire la timeline.")
+
+        # ── Benchmark comparison ──────────────────────────────────────────────
+        if not _tl_df.empty:
+            st.divider()
+            st.subheader("Comparaison benchmark")
+            _bm_col1, _bm_col2 = st.columns([5, 3])
+            with _bm_col1:
+                _bm_c1, _bm_c2, _bm_c3 = st.columns(3)
+                _bm_sp500 = _bm_c1.checkbox("S&P 500", value=True, key="bm_sp500")
+                _bm_cac   = _bm_c2.checkbox("CAC 40",  value=False, key="bm_cac")
+                _bm_btc   = _bm_c3.checkbox("BTC",     value=False, key="bm_btc")
+
+            if _bm_sp500 or _bm_cac or _bm_btc:
+                _tl_start = pd.Timestamp(_tl_df["Date"].iloc[0])
+                _tl_end   = pd.Timestamp(_tl_df["Date"].iloc[-1])
+
+                # Normalize portfolio value to 100 from start
+                _port_vals = _tl_df.set_index("Date")["Valeur (€)"]
+                _port_vals.index = pd.to_datetime(_port_vals.index)
+                _port_norm = _port_vals / _port_vals.iloc[0] * 100
+
+                _bm_colors = {"Mon portefeuille": _tl_color,
+                              "S&P 500": "#60a5fa", "CAC 40": "#f59e0b", "BTC": _C_CRYPTO}
+                fig_bm = go.Figure()
+                fig_bm.add_trace(go.Scatter(
+                    x=_port_norm.index, y=_port_norm.values,
+                    mode="lines", name="Mon portefeuille",
+                    line=dict(width=2.5, color=_tl_color),
+                    hovertemplate="%{x|%d %b %Y}<br>Portfolio: <b>%{y:.1f}</b><extra></extra>",
+                ))
+
+                _bm_fetch_days = max(365, int((_tl_end - _tl_start).days) + 30)
+                _bm_fetch_period = ("5y" if _bm_fetch_days > 730
+                                    else "2y" if _bm_fetch_days > 365
+                                    else "1y")
+
+                _bm_specs = []
+                if _bm_sp500: _bm_specs.append(("^GSPC",  "S&P 500",  False))
+                if _bm_cac:   _bm_specs.append(("^FCHI",  "CAC 40",   False))
+                if _bm_btc:   _bm_specs.append(("BTC",    "BTC",      True))
+
+                with st.spinner("Chargement des benchmarks…"):
+                    for _bm_tk, _bm_name, _bm_is_crypto in _bm_specs:
+                        try:
+                            if _bm_is_crypto:
+                                _bm_s = cached_crypto_raw_history(
+                                    _bm_tk, _bm_fetch_days,
+                                    (("BTC", "bitcoin"),),
+                                )
+                            else:
+                                _bm_s = cached_raw_history(_bm_tk, _bm_fetch_period)
+                            if _bm_s.empty:
+                                continue
+                            _bm_s.index = pd.to_datetime(_bm_s.index)
+                            _bm_s = _bm_s[_bm_s.index >= _tl_start]
+                            if len(_bm_s) < 2:
+                                continue
+                            _bm_norm = _bm_s / _bm_s.iloc[0] * 100
+                            fig_bm.add_trace(go.Scatter(
+                                x=_bm_norm.index, y=_bm_norm.values,
+                                mode="lines", name=_bm_name,
+                                line=dict(width=1.5, color=_bm_colors[_bm_name], dash="dot"),
+                                hovertemplate=f"%{{x|%d %b %Y}}<br>{_bm_name}: <b>%{{y:.1f}}</b><extra></extra>",
+                            ))
+                        except Exception:
+                            pass
+
+                fig_bm.add_hline(y=100, line_dash="dot", line_color=_MUTED, line_width=1)
+                fig_bm.update_layout(
+                    **{**_CHART, "margin": dict(l=0, r=0, t=8, b=0)},
+                    height=320, hovermode="x unified",
+                    xaxis=dict(gridcolor=_BORDER),
+                    yaxis=dict(gridcolor=_BORDER, title="Base 100"),
+                    legend=dict(orientation="h", yanchor="bottom", y=1.01, x=0),
+                )
+                st.plotly_chart(fig_bm, use_container_width=True)
+                st.caption("Base 100 = valeur à la date de la première transaction. "
+                           "Courbes en pointillés = benchmarks. "
+                           "Données S&P 500 et CAC 40 via Yahoo Finance.")
 
         # ── Répartition Bourse / Crypto ──────────────────────────────────────
         if has_stocks and has_crypto_ov and glob_value > 0:
@@ -1054,11 +1822,10 @@ with tab_dashboard:
                             marker_line_color="#2d2d2d",
                             marker_line_width=0.5,
                             colorbar=dict(
-                                title="Valeur (€)",
+                                title=dict(text="Valeur (€)", font=dict(color=_TEXT, size=10)),
                                 thickness=12,
                                 len=0.6,
                                 tickfont=dict(color=_TEXT, size=10),
-                                titlefont=dict(color=_TEXT, size=10),
                             ),
                             hovertemplate="<b>%{text}</b><br>%{z:,.0f} €<extra></extra>",
                         ))
@@ -1102,12 +1869,12 @@ with tab_dashboard:
                         hovertemplate="%{y}: %{x:.1f}%<extra></extra>",
                     ))
                     fig_gbar.update_layout(
-                        **_CHART, height=max(200, len(df_gbar) * 36),
+                        **{**_CHART, "margin": dict(l=0, r=60, t=8, b=0)},
+                        height=max(200, len(df_gbar) * 36),
                         xaxis=dict(showgrid=False, showticklabels=False,
                                    range=[0, df_gbar["Pct"].max() * 1.5]),
                         yaxis=dict(showgrid=False, tickfont=dict(size=11)),
                         bargap=0.3,
-                        margin=dict(l=0, r=60, t=8, b=0),
                     )
                     st.plotly_chart(fig_gbar, use_container_width=True)
 
@@ -1119,6 +1886,196 @@ with tab_dashboard:
                         f"est exposé aux États-Unis. Envisage d'ajouter de l'exposition "
                         f"Europe / Asie / Marchés émergents."
                     )
+
+    # ── Rebalancing tool ──────────────────────────────────────────────────────
+    if glob_value > 0:
+        st.divider()
+        st.subheader("⚖️ Rééquilibrage du portefeuille")
+        st.caption("Définis tes cibles d'allocation et calcule les ordres buy/sell nécessaires.")
+
+        # Build unified position list (stocks + crypto with valid prices)
+        _rb_rows: list[dict] = []
+        if has_stocks and not df.empty:
+            for _, _rr in df.iterrows():
+                if pd.notna(_rr.get("Valeur (€)")) and _rr["Valeur (€)"] > 0:
+                    _rb_rows.append({
+                        "ticker": _rr["Ticker"], "name": _rr["Nom"],
+                        "asset_class": "stock", "value": _rr["Valeur (€)"],
+                    })
+        if has_crypto_ov and not df_c_ov.empty:
+            for _, _rr in df_c_ov.iterrows():
+                if pd.notna(_rr.get("Valeur (€)")) and _rr["Valeur (€)"] > 0:
+                    _rb_rows.append({
+                        "ticker": _rr["Ticker"], "name": _rr["Nom"],
+                        "asset_class": "crypto", "value": _rr["Valeur (€)"],
+                    })
+
+        if not _rb_rows:
+            st.caption("Aucune position valorisée disponible.")
+        else:
+            _rb_total_val = sum(r["value"] for r in _rb_rows)
+            for _r in _rb_rows:
+                _r["current_pct"] = _r["value"] / _rb_total_val * 100
+
+            # Capital disponible input
+            _rb_extra = st.number_input(
+                "Capital additionnel à déployer (€)",
+                min_value=0.0, value=0.0, step=100.0, format="%.0f",
+                help="Montant supplémentaire que tu souhaites investir en plus du portefeuille existant.",
+                key="rb_extra_capital",
+            )
+            _rb_future_total = _rb_total_val + _rb_extra
+
+            # Initialize / load target percentages from session state
+            _rb_sk = {r["ticker"] + "_" + r["asset_class"]: r for r in _rb_rows}
+            for _rk, _rv in _rb_sk.items():
+                skey = f"rb_target_{_rk}"
+                if skey not in st.session_state:
+                    st.session_state[skey] = round(_rv["current_pct"], 1)
+
+            # ── Target allocation inputs (table layout) ───────────────────────
+            _rbt_h = st.columns([1.2, 2, 0.9, 1, 1.1, 1.1, 1.4])
+            for _hc, _hl in zip(_rbt_h,
+                ["TICKER", "NOM", "CLASSE", "VALEUR ACT.", "ALLOC. ACT.", "CIBLE %", "ACTION"]):
+                _hc.markdown(
+                    f"<div style='font-size:9px;color:{_MUTED};letter-spacing:0.07em;"
+                    f"font-weight:600;padding-bottom:4px;border-bottom:1px solid {_BORDER};'>"
+                    f"{_hl}</div>",
+                    unsafe_allow_html=True,
+                )
+            st.write("")
+
+            _rb_targets: dict[str, float] = {}
+            for _r in _rb_rows:
+                _rk    = _r["ticker"] + "_" + _r["asset_class"]
+                _skey  = f"rb_target_{_rk}"
+                _ac_c  = _C_CRYPTO if _r["asset_class"] == "crypto" else _C_GAIN
+                _ac_lb = "₿" if _r["asset_class"] == "crypto" else "◈"
+
+                _rc1, _rc2, _rc3, _rc4, _rc5, _rc6, _rc7 = st.columns(
+                    [1.2, 2, 0.9, 1, 1.1, 1.1, 1.4]
+                )
+                _rc1.markdown(
+                    f"<span style='font-weight:700;font-size:13px;color:{_TEXT};'>{_r['ticker']}</span>",
+                    unsafe_allow_html=True,
+                )
+                _rc2.markdown(
+                    f"<span style='font-size:11px;color:{_MUTED};'>{_r['name'][:22]}</span>",
+                    unsafe_allow_html=True,
+                )
+                _rc3.markdown(
+                    f"<span style='font-size:11px;font-weight:700;color:{_ac_c};'>{_ac_lb}</span>",
+                    unsafe_allow_html=True,
+                )
+                _rc4.markdown(
+                    f"<span style='font-size:12px;color:{_TEXT};'>{_r['value']:,.0f} €</span>",
+                    unsafe_allow_html=True,
+                )
+                _rc5.markdown(
+                    f"<span style='font-size:12px;color:{_MUTED};'>{_r['current_pct']:.1f}%</span>",
+                    unsafe_allow_html=True,
+                )
+
+                target_pct = _rc6.number_input(
+                    "Cible", min_value=0.0, max_value=100.0,
+                    value=float(st.session_state[_skey]),
+                    step=0.5, format="%.1f",
+                    key=f"rb_inp_{_rk}", label_visibility="collapsed",
+                )
+                st.session_state[_skey] = target_pct
+                _rb_targets[_rk] = target_pct
+
+                # Compute action
+                _target_val  = _rb_future_total * target_pct / 100
+                _delta       = _target_val - _r["value"]
+                _delta_color = _C_GAIN if _delta >= 0 else _C_LOSS
+                _delta_icon  = "▲ Acheter" if _delta >= 0 else "▼ Vendre"
+                _delta_str   = f"{_delta_icon} {abs(_delta):,.0f} €"
+                _rc7.markdown(
+                    f"<span style='font-size:11px;font-weight:600;color:{_delta_color};'>"
+                    f"{_delta_str}</span>",
+                    unsafe_allow_html=True,
+                )
+
+            st.write("")
+            _rb_total_target = sum(_rb_targets.values())
+            _rb_diff = _rb_total_target - 100.0
+
+            # Total target indicator
+            _rbs1, _rbs2, _rbs3 = st.columns([2, 2, 4])
+            _rb_sum_color = _C_GAIN if abs(_rb_diff) < 0.1 else _C_WARN if abs(_rb_diff) < 5 else _C_LOSS
+            _rbs1.markdown(
+                f"<div style='font-size:12px;'>Total cible : "
+                f"<span style='font-weight:700;color:{_rb_sum_color};'>{_rb_total_target:.1f}%</span>"
+                f"&nbsp;&nbsp;<span style='font-size:10px;color:{_rb_sum_color};'>"
+                f"({'OK' if abs(_rb_diff)<0.1 else f'{_rb_diff:+.1f}% vs 100%'})"
+                f"</span></div>",
+                unsafe_allow_html=True,
+            )
+
+            # Reset button
+            with _rbs2:
+                if st.button("↺ Réinitialiser aux valeurs actuelles", key="rb_reset"):
+                    for _r in _rb_rows:
+                        _rk = _r["ticker"] + "_" + _r["asset_class"]
+                        st.session_state[f"rb_target_{_rk}"] = round(_r["current_pct"], 1)
+                    st.rerun()
+
+            # Distribute remaining % button
+            if abs(_rb_diff) > 0.1:
+                with _rbs3:
+                    st.caption(
+                        f"{'Réduire' if _rb_diff>0 else 'Augmenter'} les cibles de "
+                        f"{abs(_rb_diff):.1f}% au total pour atteindre 100%."
+                    )
+
+            # ── Summary cards ─────────────────────────────────────────────────
+            _rb_buys  = sum(
+                max(0, _rb_future_total * _rb_targets[_r["ticker"]+"_"+_r["asset_class"]] / 100 - _r["value"])
+                for _r in _rb_rows
+            )
+            _rb_sells = sum(
+                max(0, _r["value"] - _rb_future_total * _rb_targets[_r["ticker"]+"_"+_r["asset_class"]] / 100)
+                for _r in _rb_rows
+            )
+            st.write("")
+            _sm1, _sm2, _sm3, _sm4 = st.columns(4)
+            _sm1.metric("Achats nécessaires",  f"{_rb_buys:,.0f} €")
+            _sm2.metric("Ventes nécessaires",  f"{_rb_sells:,.0f} €")
+            _sm3.metric("Net à déployer",      f"{_rb_buys - _rb_sells:+,.0f} €")
+            _sm4.metric("Capital additionnel", f"{_rb_extra:,.0f} €",
+                        delta="inclus dans le calcul" if _rb_extra > 0 else None)
+
+            # ── Chart: current vs target ───────────────────────────────────────
+            st.write("")
+            _rb_tickers   = [r["ticker"] for r in _rb_rows]
+            _rb_cur_pcts  = [r["current_pct"] for r in _rb_rows]
+            _rb_tgt_pcts  = [
+                _rb_targets[r["ticker"] + "_" + r["asset_class"]] for r in _rb_rows
+            ]
+            fig_rb = go.Figure()
+            fig_rb.add_trace(go.Bar(
+                name="Alloc. actuelle", x=_rb_tickers, y=_rb_cur_pcts,
+                marker_color=_MUTED, opacity=0.7,
+                text=[f"{v:.1f}%" for v in _rb_cur_pcts], textposition="auto",
+                textfont=dict(size=10, color="#000"),
+                hovertemplate="%{x}: %{y:.1f}%<extra>Actuelle</extra>",
+            ))
+            fig_rb.add_trace(go.Bar(
+                name="Alloc. cible", x=_rb_tickers, y=_rb_tgt_pcts,
+                marker_color=_C_GAIN, opacity=0.85,
+                text=[f"{v:.1f}%" for v in _rb_tgt_pcts], textposition="auto",
+                textfont=dict(size=10, color="#000"),
+                hovertemplate="%{x}: %{y:.1f}%<extra>Cible</extra>",
+            ))
+            fig_rb.update_layout(
+                **{**_CHART, "margin": dict(l=0, r=0, t=8, b=0)},
+                height=280, barmode="group",
+                xaxis=dict(gridcolor=_BORDER, tickfont=dict(size=11)),
+                yaxis=dict(gridcolor=_BORDER, title="%"),
+                legend=dict(orientation="h", yanchor="bottom", y=1.01, x=0),
+            )
+            st.plotly_chart(fig_rb, use_container_width=True)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1134,10 +2091,12 @@ _MODEL_CFG = {
 
 
 with tab_stocks:
-    sub_stk_ov, sub_stk_manage, sub_stk_ai = st.tabs([
+    sub_stk_ov, sub_stk_manage, sub_stk_sim, sub_stk_ai, sub_stk_div = st.tabs([
         "▣  Vue d'ensemble",
         "◈  Mes positions",
+        "⟳  Simulateur DCA",
         "◎  Analyse IA",
+        "💰  Dividendes",
     ])
 
     # ══ STOCKS — Vue d'ensemble ═══════════════════════════════════════════════
@@ -1237,6 +2196,13 @@ with tab_stocks:
             st.subheader("Performance par position")
             df_perf = df.dropna(subset=["Perf (%)"]).sort_values("Perf (%)")
             if not df_perf.empty:
+                _stk_perf_sel = st.multiselect(
+                    "Filtrer les positions :", sorted(df_perf["Ticker"].tolist()),
+                    default=sorted(df_perf["Ticker"].tolist()),
+                    key="stk_perf_filter", placeholder="Toutes les positions…",
+                )
+                if _stk_perf_sel:
+                    df_perf = df_perf[df_perf["Ticker"].isin(_stk_perf_sel)]
                 fig_bar = go.Figure(go.Bar(
                     x=df_perf["Perf (%)"], y=df_perf["Ticker"], orientation="h",
                     marker_color=[_C_LOSS if v < 0 else _C_GAIN for v in df_perf["Perf (%)"]],
@@ -1249,7 +2215,13 @@ with tab_stocks:
                     xaxis=dict(gridcolor=_BORDER, zerolinecolor=_BORDER),
                     yaxis=dict(gridcolor="rgba(0,0,0,0)"), bargap=0.35,
                 )
-                st.plotly_chart(fig_bar, use_container_width=True)
+                ev_stk_perf = st.plotly_chart(fig_bar, use_container_width=True,
+                                              on_select="rerun", key="ev_stk_perf")
+                pts = (ev_stk_perf or {}).get("selection", {}).get("points", [])
+                if pts:
+                    tk = pts[0].get("y")
+                    if tk and tk in df["Ticker"].values:
+                        _maybe_open_fiche(tk, "stock", df, prices)
 
             st.divider()
 
@@ -1261,7 +2233,12 @@ with tab_stocks:
                 p_label = st.selectbox("Période", list(p_options.keys()), index=1, key="hist_p")
             with hc2:
                 show_bench = st.checkbox("S&P 500 (réf.)", value=True, key="hist_bench")
-            tickers_tuple = tuple(df["Ticker"].tolist())
+            _hist_sel = st.multiselect(
+                "Filtrer les actifs :", sorted(df["Ticker"].tolist()),
+                default=sorted(df["Ticker"].tolist()),
+                key="hist_ticker_filter", placeholder="Tous les actifs…",
+            )
+            tickers_tuple = tuple(_hist_sel if _hist_sel else df["Ticker"].tolist())
             with st.spinner("Chargement…"):
                 df_hist  = cached_history(tickers_tuple, p_options[p_label])
                 df_bench = cached_history(("SPY",), p_options[p_label]) if show_bench else pd.DataFrame()
@@ -1282,46 +2259,38 @@ with tab_stocks:
                 fig_h.update_layout(
                     **_CHART, height=360, hovermode="x unified",
                     yaxis_title="Base 100",
-                    xaxis=dict(gridcolor=_BORDER),
-                    yaxis=dict(gridcolor=_BORDER),
+                    xaxis=dict(gridcolor=_BORDER), yaxis=dict(gridcolor=_BORDER),
                     legend=dict(bgcolor="rgba(26,26,26,0.9)", bordercolor=_BORDER,
                                 borderwidth=1, font=dict(size=11)),
                 )
                 st.plotly_chart(fig_h, use_container_width=True)
 
-                # ── Risk metrics ──────────────────────────────────────────────
-                val_weights = {row["Ticker"]: (row["Valeur (€)"] or 0)
-                               for _, row in df.iterrows() if pd.notna(row.get("Valeur (€)"))}
+                val_weights = {r["Ticker"]: (r["Valeur (€)"] or 0)
+                               for _, r in df.iterrows() if pd.notna(r.get("Valeur (€)"))}
                 risk = compute_risk_metrics(df_hist, value_weights=val_weights)
                 if risk:
                     st.markdown("**Métriques de risque du portefeuille (période sélectionnée)**")
                     rk1, rk2, rk3, rk4 = st.columns(4)
-                    rk1.metric("Rendement total",    f"{risk['total_return']:+.1f}%")
-                    rk2.metric("Volatilité ann.",    f"{risk['volatility']:.1f}%")
-                    rk3.metric("Sharpe ratio",       f"{risk['sharpe']:.2f}",
+                    rk1.metric("Rendement total",  f"{risk['total_return']:+.1f}%")
+                    rk2.metric("Volatilité ann.",   f"{risk['volatility']:.1f}%")
+                    rk3.metric("Sharpe ratio",      f"{risk['sharpe']:.2f}",
                                help="Rendement ajusté du risque (taux sans risque 2.5%). > 1 = bon, > 2 = excellent.")
-                    rk4.metric("Max Drawdown",       f"{risk['max_drawdown']:.1f}%",
+                    rk4.metric("Max Drawdown",      f"{risk['max_drawdown']:.1f}%",
                                help="Perte maximale depuis un pic sur la période.")
 
-                # ── Correlation heatmap ───────────────────────────────────────
                 if len(df_hist.columns) > 1:
                     with st.expander("Matrice de corrélation", expanded=False):
                         corr = df_hist.pct_change().dropna().corr().round(2)
                         fig_corr = go.Figure(go.Heatmap(
-                            z=corr.values,
-                            x=corr.columns.tolist(),
-                            y=corr.index.tolist(),
+                            z=corr.values, x=corr.columns.tolist(), y=corr.index.tolist(),
                             colorscale=[[0, _C_LOSS], [0.5, "#1a1a1a"], [1, _C_GAIN]],
-                            zmid=0, zmin=-1, zmax=1,
-                            text=corr.values,
-                            texttemplate="%{text:.2f}",
-                            textfont=dict(size=11),
+                            zmid=0, zmin=-1, zmax=1, text=corr.values,
+                            texttemplate="%{text:.2f}", textfont=dict(size=11),
                             hovertemplate="%{y} / %{x} : %{z:.2f}<extra></extra>",
                         ))
                         fig_corr.update_layout(
-                            **_CHART,
+                            **{**_CHART, "margin": dict(l=0, r=0, t=8, b=0)},
                             height=max(260, len(corr) * 46),
-                            margin=dict(l=0, r=0, t=8, b=0),
                             xaxis=dict(tickfont=dict(size=11)),
                             yaxis=dict(tickfont=dict(size=11)),
                         )
@@ -1335,15 +2304,21 @@ with tab_stocks:
 
             st.divider()
             st.subheader("Détail des positions")
-            st.dataframe(_fmt_df(df), width="stretch", hide_index=True)
+            st.caption("Cliquez sur une ligne pour ouvrir la fiche de l'actif.")
+            ev_stk_tbl = st.dataframe(
+                _fmt_df(df), width="stretch", hide_index=True,
+                on_select="rerun", selection_mode="single-row", key="ev_stk_tbl",
+            )
+            rows_sel = (ev_stk_tbl or {}).get("selection", {}).get("rows", [])
+            if rows_sel:
+                _maybe_open_fiche(df.iloc[rows_sel[0]]["Ticker"], "stock", df, prices)
 
-            st.divider()
-            st.subheader("Fiche détail — analyse d'un actif")
-            ticker_opts = ["— Sélectionner un actif —"] + sorted(df["Ticker"].tolist())
-            sel_stk = st.selectbox("", ticker_opts, key="fiche_stk_sel",
-                                   label_visibility="collapsed")
-            if sel_stk != "— Sélectionner un actif —":
-                _render_asset_fiche(sel_stk, "stock", df, prices)
+            # Quick buy strip
+            _qb_tickers = df["Ticker"].tolist()
+            _qb_cols = st.columns(min(len(_qb_tickers), 8))
+            for _qbi, (_qbc, _qbt) in enumerate(zip(_qb_cols, _qb_tickers)):
+                with _qbc:
+                    _render_exchange_links(_qbt, "stock", compact=True)
 
 
     # ══ STOCKS — Mes positions ═══════════════════════════════════════════════
@@ -1451,6 +2426,11 @@ with tab_stocks:
                     with c4:
                         fees = st.number_input("Frais (€)", min_value=0.0,
                                                step=0.01, format="%.2f", value=0.0)
+                    _stk_plat_opts = ["— Non précisé"] + STOCK_PLATFORM_NAMES
+                    _stk_platform  = st.selectbox(
+                        "Plateforme d'achat", _stk_plat_opts, key="stk_platform_sel",
+                        help="Mémorisé pour adapter le bouton Acheter et les mails d'alerte.",
+                    )
                     if qty > 0:
                         computed_pru = (qty * price + fees) / qty
                         st.caption(f"PRU calculé : {computed_pru:.4f} (frais inclus)")
@@ -1462,8 +2442,9 @@ with tab_stocks:
                         st.error("Quantité et prix doivent être > 0.")
                     else:
                         try:
+                            _plat_val = None if _stk_platform == "— Non précisé" else _stk_platform
                             add_transaction(ticker_sel, name_sel, tx_date.isoformat(),
-                                            qty, price, fees)
+                                            qty, price, fees, platform=_plat_val)
                             st.success(f"{qty:.4f} × {ticker_sel} enregistré — PRU mis à jour.")
                             for k in ("prefill_ticker", "prefill_name", "price_hint"):
                                 st.session_state[k] = "" if k != "price_hint" else None
@@ -1472,6 +2453,99 @@ with tab_stocks:
                             st.error(f"Erreur : {e}")
         else:
             st.caption("Recherche un titre ci-dessus pour l'ajouter.")
+
+        st.divider()
+        st.subheader("Enregistrer une vente")
+        _sell_positions = get_positions(asset_class="stock")
+        if not _sell_positions:
+            st.caption("Aucune position à vendre.")
+        else:
+            with st.expander("Vendre / Alléger une position", expanded=False):
+                _sell_opts = {f"{p['ticker']} — {p['name']}": p for p in _sell_positions}
+                _sell_sel_label = st.selectbox(
+                    "Position à vendre", list(_sell_opts.keys()), key="sell_pos_sel"
+                )
+                _sell_pos = _sell_opts[_sell_sel_label]
+                _sell_ticker = _sell_pos["ticker"]
+                _sell_max_qty = _sell_pos["quantity"]
+                _sell_pru = _sell_pos["avg_buy_price"]
+
+                st.caption(
+                    f"Position actuelle : **{_sell_max_qty:.6f}** unités · PRU **{_sell_pru:.4f} €**"
+                )
+
+                with st.form("sell_form", clear_on_submit=True):
+                    sv1, sv2, sv3, sv4 = st.columns([2, 2, 2, 2])
+                    with sv1:
+                        _sv_date = st.date_input("Date de vente", value=_date.today(), key="sv_date")
+                    with sv2:
+                        _sv_qty = st.number_input(
+                            "Quantité vendue",
+                            min_value=0.000001, max_value=float(_sell_max_qty),
+                            step=1.0, format="%.6f", key="sv_qty",
+                        )
+                    with sv3:
+                        _sv_price = st.number_input(
+                            "Prix de vente / action",
+                            min_value=0.0001, step=0.01, format="%.4f", key="sv_price",
+                        )
+                    with sv4:
+                        _sv_fees = st.number_input(
+                            "Frais (€)", min_value=0.0, step=0.01, format="%.2f",
+                            value=0.0, key="sv_fees",
+                        )
+
+                    if _sv_qty > 0 and _sv_price > 0:
+                        _sv_pnl = (_sv_price - _sell_pru) * _sv_qty - _sv_fees
+                        _sv_pnl_pct = (_sv_price / _sell_pru - 1) * 100 if _sell_pru > 0 else 0.0
+                        _sv_col = _C_GAIN if _sv_pnl >= 0 else _C_LOSS
+                        _sv_pfu = max(_sv_pnl, 0) * _PFU
+                        _sv_net = _sv_pnl - _sv_pfu
+                        st.markdown(
+                            f"<div style='background:{_SURFACE};border:1px solid {_BORDER};"
+                            f"padding:10px 14px;margin:8px 0;font-size:12px;'>"
+                            f"<div style='display:flex;gap:24px;flex-wrap:wrap;'>"
+                            f"<span style='color:{_MUTED};'>P&amp;L brut : "
+                            f"<span style='color:{_sv_col};font-weight:700;'>"
+                            f"{_sv_pnl:+,.2f} € ({_sv_pnl_pct:+.2f}%)</span></span>"
+                            + (
+                                f"<span style='color:{_MUTED};'>PFU 30% : "
+                                f"<span style='color:{_C_LOSS};font-weight:600;'>"
+                                f"−{_sv_pfu:,.2f} €</span></span>"
+                                f"<span style='color:{_MUTED};'>Net après impôt : "
+                                f"<span style='color:{_sv_col};font-weight:700;'>"
+                                f"{_sv_net:+,.2f} €</span></span>"
+                                if _sv_pnl > 0 else ""
+                            )
+                            + f"</div></div>",
+                            unsafe_allow_html=True,
+                        )
+                    _sv_submit = st.form_submit_button(
+                        "Enregistrer cette vente", type="primary", use_container_width=True
+                    )
+
+                if _sv_submit:
+                    if _sv_qty <= 0 or _sv_price <= 0:
+                        st.error("Quantité et prix doivent être > 0.")
+                    elif _sv_qty > _sell_max_qty:
+                        st.error(f"Quantité supérieure à la position ({_sell_max_qty:.6f}).")
+                    else:
+                        try:
+                            add_transaction(
+                                _sell_ticker,
+                                _sell_pos["name"],
+                                _sv_date.isoformat(),
+                                -_sv_qty,
+                                _sv_price,
+                                _sv_fees,
+                            )
+                            st.success(
+                                f"Vente de {_sv_qty:.4f} × {_sell_ticker} enregistrée. "
+                                f"PRU mis à jour."
+                            )
+                            st.rerun()
+                        except Exception as _e:
+                            st.error(f"Erreur : {_e}")
 
         st.divider()
         st.subheader("Mes positions")
@@ -1499,21 +2573,141 @@ with tab_stocks:
                             "PRU et historique sont corrects."
                         )
 
-                    st.caption("Historique des achats")
-                    hdr = st.columns([2, 2, 2, 2, 1])
-                    for col, lbl in zip(hdr, ["Date", "Quantité", "Prix/action", "Frais", ""]):
-                        col.markdown(f"<span style='font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em;'>{lbl}</span>", unsafe_allow_html=True)
+                    _render_exchange_links(p["ticker"], "stock")
+                    st.markdown("---")
+                    st.caption("Historique des transactions")
+                    _stk_hdr = st.columns([1.8, 1.5, 1.8, 1.2, 1.8, 1])
+                    for _hc, _hl in zip(_stk_hdr, ["Date", "Quantité", "Prix/action", "Frais", "Plateforme", ""]):
+                        _hc.markdown(
+                            f"<span style='font-size:10px;color:{_MUTED};"
+                            f"text-transform:uppercase;letter-spacing:0.05em;'>{_hl}</span>",
+                            unsafe_allow_html=True,
+                        )
                     for t in txs:
-                        tc1, tc2, tc3, tc4, tc5 = st.columns([2, 2, 2, 2, 1])
-                        cur = t.get("currency", "EUR")
-                        tc1.write(t["tx_date"])
-                        tc2.write(f"{t['quantity']:.6f}")
-                        tc3.write(f"{t['price']:.4f} {cur}")
-                        tc4.write(f"{t['fees']:.2f} €" if t["fees"] else "—")
-                        with tc5:
-                            if st.button("✕", key=f"del_tx_{t['id']}"):
-                                delete_transaction(t["id"])
-                                st.rerun()
+                        _tx_type_col = _C_GAIN if t["quantity"] >= 0 else _C_LOSS
+                        _tc1, _tc2, _tc3, _tc4, _tc5, _tc6 = st.columns([1.8, 1.5, 1.8, 1.2, 1.8, 1])
+                        _cur = t.get("currency", "EUR")
+                        _tc1.write(t["tx_date"])
+                        _tc2.markdown(
+                            f"<span style='color:{_tx_type_col};font-weight:600;'>"
+                            f"{t['quantity']:+.6f}</span>",
+                            unsafe_allow_html=True,
+                        )
+                        _tc3.write(f"{t['price']:.4f} {_cur}")
+                        _tc4.write(f"{t['fees']:.2f} €" if t["fees"] else "—")
+                        _pf_disp = t.get("platform") or "—"
+                        _tc5.markdown(
+                            f"<span style='font-size:11px;color:{_MUTED};'>{_pf_disp}</span>",
+                            unsafe_allow_html=True,
+                        )
+                        with _tc6:
+                            _ea, _da = st.columns(2)
+                            with _ea:
+                                if st.button("✎", key=f"edit_stk_tx_{t['id']}", help="Modifier"):
+                                    st.session_state["editing_tx_id"] = (
+                                        None if st.session_state["editing_tx_id"] == t["id"] else t["id"]
+                                    )
+                                    st.rerun()
+                            with _da:
+                                if st.button("✕", key=f"del_tx_{t['id']}", help="Supprimer"):
+                                    delete_transaction(t["id"])
+                                    if st.session_state["editing_tx_id"] == t["id"]:
+                                        st.session_state["editing_tx_id"] = None
+                                    st.rerun()
+
+                    # ── Inline edit form ──────────────────────────────────────
+                    _editing_id = st.session_state.get("editing_tx_id")
+                    _edit_tx = next((t for t in txs if t["id"] == _editing_id), None)
+                    if _edit_tx:
+                        _etx_id = _edit_tx["id"]
+                        st.markdown(
+                            f"<div style='background:{_SURFACE};border:1px solid {_C_WARN}44;"
+                            f"border-left:3px solid {_C_WARN};padding:12px 16px;margin:10px 0;"
+                            f"font-size:11px;color:{_C_WARN};text-transform:uppercase;"
+                            f"letter-spacing:0.07em;font-weight:700;'>✎ Modifier — transaction #{_etx_id}</div>",
+                            unsafe_allow_html=True,
+                        )
+                        with st.form(f"stk_edit_form_{_edit_tx['id']}", clear_on_submit=False):
+                            _ef1, _ef2 = st.columns(2)
+                            with _ef1:
+                                _e_type = st.radio(
+                                    "Type", ["Achat", "Vente"],
+                                    index=0 if _edit_tx["quantity"] >= 0 else 1,
+                                    horizontal=True, key=f"e_type_{_edit_tx['id']}",
+                                )
+                                _e_date = st.date_input(
+                                    "Date",
+                                    value=_date.fromisoformat(_edit_tx["tx_date"]),
+                                    key=f"e_date_{_edit_tx['id']}",
+                                )
+                                _e_qty = st.number_input(
+                                    "Quantité (absolue)",
+                                    min_value=0.000001,
+                                    value=abs(_edit_tx["quantity"]),
+                                    format="%.6f", key=f"e_qty_{_edit_tx['id']}",
+                                )
+                                _e_price = st.number_input(
+                                    "Prix / action",
+                                    min_value=0.0,
+                                    value=float(_edit_tx["price"]),
+                                    format="%.6f", key=f"e_price_{_edit_tx['id']}",
+                                )
+                            with _ef2:
+                                _e_fees = st.number_input(
+                                    "Frais",
+                                    min_value=0.0,
+                                    value=float(_edit_tx["fees"]),
+                                    format="%.4f", key=f"e_fees_{_edit_tx['id']}",
+                                )
+                                _e_currency = st.text_input(
+                                    "Devise",
+                                    value=_edit_tx.get("currency", "EUR"),
+                                    key=f"e_cur_{_edit_tx['id']}",
+                                ).strip().upper()
+                                _e_name = st.text_input(
+                                    "Nom de l'actif",
+                                    value=_edit_tx.get("name", ""),
+                                    key=f"e_name_{_edit_tx['id']}",
+                                )
+                                _stk_pf_all = ["— Non précisé"] + STOCK_PLATFORM_NAMES
+                                _stk_pf_cur = _edit_tx.get("platform") or "— Non précisé"
+                                _stk_pf_idx = _stk_pf_all.index(_stk_pf_cur) if _stk_pf_cur in _stk_pf_all else 0
+                                _e_platform = st.selectbox(
+                                    "Plateforme",
+                                    _stk_pf_all,
+                                    index=_stk_pf_idx,
+                                    key=f"e_plat_{_edit_tx['id']}",
+                                )
+                            _ef_save, _ef_cancel = st.columns(2)
+                            with _ef_save:
+                                _e_saved = st.form_submit_button(
+                                    "Enregistrer les modifications",
+                                    type="primary", use_container_width=True,
+                                )
+                            with _ef_cancel:
+                                _e_cancelled = st.form_submit_button(
+                                    "Annuler", use_container_width=True
+                                )
+
+                        if _e_saved:
+                            _signed_qty = _e_qty if _e_type == "Achat" else -_e_qty
+                            _plat_save  = None if _e_platform == "— Non précisé" else _e_platform
+                            update_transaction(
+                                _edit_tx["id"],
+                                tx_date=_e_date.isoformat(),
+                                quantity=_signed_qty,
+                                price=_e_price,
+                                fees=_e_fees,
+                                currency=_e_currency or "EUR",
+                                name=_e_name or p["name"],
+                                platform=_plat_save,
+                            )
+                            st.session_state["editing_tx_id"] = None
+                            st.success("Transaction mise à jour.")
+                            st.rerun()
+                        if _e_cancelled:
+                            st.session_state["editing_tx_id"] = None
+                            st.rerun()
 
                     st.markdown("---")
                     if st.button(f"Supprimer la position {p['ticker']}",
@@ -1522,7 +2716,83 @@ with tab_stocks:
                         st.rerun()
 
 
-    # ══════════════════════════════════════════════════════════════════════════════
+    # ══ STOCKS — Simulateur DCA ══════════════════════════════════════════════
+    with sub_stk_sim:
+        st.subheader("Simulateur DCA")
+        st.caption(
+            "Compare une stratégie d'investissement programmé (DCA) — un montant fixe chaque mois — "
+            "contre un achat unique (Lump Sum) pour n'importe quel actif."
+        )
+        _dca_positions = get_positions(asset_class="stock") or []
+        _dca_pos_labels = {f"{p['ticker']} — {p['name']}": p["ticker"] for p in _dca_positions}
+        dca_c1, dca_c2 = st.columns([3, 2])
+        with dca_c1:
+            _dca_mode = st.radio("Actif", ["Depuis mes positions", "Saisir un ticker manuellement"],
+                                 horizontal=True, key="dca_mode")
+            if _dca_mode == "Depuis mes positions" and _dca_pos_labels:
+                _dca_sel = st.selectbox("Position :", list(_dca_pos_labels.keys()), key="dca_pos_sel")
+                _dca_ticker = _dca_pos_labels[_dca_sel]
+            else:
+                _dca_ticker = st.text_input("Ticker Yahoo Finance", placeholder="NVDA, AAPL, BTC-EUR…",
+                                            key="dca_manual_ticker").strip().upper()
+        with dca_c2:
+            _dca_amount = st.number_input("Montant mensuel (€)", min_value=1.0,
+                                          value=100.0, step=10.0, format="%.0f", key="dca_amount")
+            _dca_start  = st.date_input("Date de début", value=_date(2023, 1, 1), key="dca_start")
+
+        if st.button("Simuler", type="primary", key="dca_run") and _dca_ticker:
+            with st.spinner(f"Récupération de l'historique de {_dca_ticker}…"):
+                _dca_series = cached_raw_history(_dca_ticker, "5y")
+            if _dca_series.empty:
+                st.error(f"Historique introuvable pour {_dca_ticker}. Vérifie le symbole Yahoo Finance.")
+            else:
+                _dca_result = simulate_dca(_dca_series, float(_dca_amount), pd.Timestamp(_dca_start))
+                if _dca_result.empty:
+                    st.warning("Pas assez d'historique pour la période choisie.")
+                else:
+                    st.session_state["dca_result"] = _dca_result
+                    st.session_state["dca_ticker"] = _dca_ticker
+                    st.session_state["dca_amount"] = _dca_amount
+
+        if "dca_result" in st.session_state and not st.session_state["dca_result"].empty:
+            _dr   = st.session_state["dca_result"]
+            _dtk  = st.session_state["dca_ticker"]
+            _damt = st.session_state["dca_amount"]
+            _lr   = _dr.iloc[-1]
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("DCA — Valeur finale",     f"{_lr['DCA — Valeur']:,.0f} €")
+            m2.metric("DCA — Total investi",     f"{_lr['DCA — Investi']:,.0f} €",
+                      delta=f"{(_lr['DCA — Valeur']-_lr['DCA — Investi']):+,.0f} €")
+            m3.metric("Lump Sum — Valeur finale",f"{_lr['Lump Sum — Valeur']:,.0f} €")
+            m4.metric("Lump Sum — Budget",       f"{_lr['Lump Sum — Investi']:,.0f} €",
+                      delta=f"{(_lr['Lump Sum — Valeur']-_lr['Lump Sum — Investi']):+,.0f} €")
+            fig_dca = go.Figure()
+            for col, color, dash in [
+                ("DCA — Valeur",       _C_GAIN,   "solid"),
+                ("DCA — Investi",      _C_GAIN,   "dot"),
+                ("Lump Sum — Valeur",  _C_CRYPTO, "solid"),
+                ("Lump Sum — Investi", _C_CRYPTO, "dot"),
+            ]:
+                fig_dca.add_trace(go.Scatter(
+                    x=_dr["Date"], y=_dr[col], name=col, mode="lines",
+                    line=dict(width=2.5 if dash=="solid" else 1.5, color=color, dash=dash),
+                    opacity=1.0 if dash=="solid" else 0.6,
+                ))
+            fig_dca.update_layout(
+                **{**_CHART, "margin": dict(l=0, r=0, t=8, b=0)},
+                height=380, hovermode="x unified",
+                xaxis=dict(gridcolor=_BORDER), yaxis=dict(gridcolor=_BORDER, title="€"),
+                legend=dict(orientation="h", yanchor="bottom", y=1.01, x=0),
+                title=dict(text=f"DCA {_damt:.0f} €/mois vs Lump Sum — {_dtk}",
+                           font=dict(size=13, color=_TEXT), x=0),
+            )
+            st.plotly_chart(fig_dca, use_container_width=True)
+            _winner = "DCA" if _lr["DCA — Valeur"] > _lr["Lump Sum — Valeur"] else "Lump Sum"
+            _diff   = abs(_lr["DCA — Valeur"] - _lr["Lump Sum — Valeur"])
+            st.info(
+                f"Sur cette période, **{_winner}** surperforme de **{_diff:,.0f} €**. "
+                f"Le DCA réduit le risque d'entrée mais peut sous-performer en tendance haussière forte."
+            )
 
     # ══ STOCKS — Analyse IA ══════════════════════════════════════════════════
     with sub_stk_ai:
@@ -1979,6 +3249,160 @@ with tab_stocks:
                             st.rerun()
 
 
+    # ══ STOCKS — Dividendes ══════════════════════════════════════════════════
+    with sub_stk_div:
+        st.markdown("### 💰 Suivi des dividendes")
+        st.caption("Enregistre tes dividendes reçus et consulte les données de rendement de tes positions.")
+
+        _stk_positions = get_positions(asset_class="stock")
+
+        # ── KPI overview ─────────────────────────────────────────────────────
+        _all_divs = get_dividends()
+        _current_year = str(_date.today().year)
+        _div_total     = sum(d["total_received"] for d in _all_divs)
+        _div_this_year = sum(d["total_received"] for d in _all_divs
+                             if d["ex_date"].startswith(_current_year))
+        _div_tickers   = len({d["ticker"] for d in _all_divs})
+
+        _kd1, _kd2, _kd3 = st.columns(3)
+        _kd1.metric("Total reçu (tous temps)", f"{_div_total:,.2f} €")
+        _kd2.metric(f"Reçu en {_current_year}", f"{_div_this_year:,.2f} €")
+        _kd3.metric("Actions versant un dividende", str(_div_tickers))
+
+        st.divider()
+
+        # ── Auto-scan : dividend info for each stock position ─────────────────
+        if _stk_positions:
+            st.subheader("Rendement des positions")
+            st.caption("Données automatiques via Yahoo Finance — actualisées à chaque session.")
+
+            _dv_rows = []
+            with st.spinner("Récupération des données de dividende…"):
+                for _sp in _stk_positions:
+                    _dinfo = cached_dividend_info(_sp["ticker"])
+                    _qty   = _sp["quantity"]
+                    _rate  = _dinfo.get("dividend_rate")
+                    _dv_rows.append({
+                        "Ticker":         _sp["ticker"],
+                        "Nom":            _sp["name"],
+                        "Div/action/an":  f"{_rate:.4f} €"    if _rate   else "—",
+                        "Rendement %":    f"{_dinfo['dividend_yield_pct']:.2f}%" if _dinfo.get("dividend_yield_pct") else "—",
+                        "Revenu estimé/an": f"{_rate * _qty:,.2f} €" if _rate else "—",
+                        "Prochain détachement": _dinfo.get("ex_dividend_date") or "—",
+                        "Dernier dividende": _dinfo.get("last_dividend_date") or "—",
+                        "Taux distribution": f"{_dinfo['payout_ratio']:.0f}%" if _dinfo.get("payout_ratio") else "—",
+                        "_rate": _rate or 0,
+                    })
+
+            if _dv_rows:
+                _dv_rows.sort(key=lambda r: (r["Prochain détachement"] == "—", r["Prochain détachement"]))
+                _dv_display = [{k: v for k, v in r.items() if k != "_rate"} for r in _dv_rows]
+                st.dataframe(pd.DataFrame(_dv_display), hide_index=True, use_container_width=True)
+
+                _total_est = sum(r["_rate"] * next(
+                    (p["quantity"] for p in _stk_positions if p["ticker"] == r["Ticker"]), 0
+                ) for r in _dv_rows)
+                if _total_est > 0:
+                    st.success(f"Revenu dividende estimé total : **{_total_est:,.2f} €/an** "
+                               f"({_total_est/12:,.2f} €/mois)")
+        else:
+            st.info("Aucune position en actions. Ajoute des transactions dans l'onglet **Mes positions**.")
+
+        st.divider()
+
+        # ── Record a dividend ─────────────────────────────────────────────────
+        st.subheader("Enregistrer un dividende reçu")
+        with st.form("div_add_form", clear_on_submit=True):
+            _df1, _df2, _df3 = st.columns([2, 2, 2])
+
+            if _stk_positions:
+                _dv_opts = {f"{p['ticker']} — {p['name']}": p for p in _stk_positions}
+                _dv_sel_key = _df1.selectbox("Position", list(_dv_opts.keys()))
+                _dv_sel  = _dv_opts[_dv_sel_key]
+                _dv_tk   = _dv_sel["ticker"]
+                _dv_name = _dv_sel["name"]
+                _dv_qty_default = float(_dv_sel["quantity"])
+            else:
+                _dv_tk   = _df1.text_input("Ticker").upper()
+                _dv_name = _df1.text_input("Nom")
+                _dv_qty_default = 0.0
+
+            _dv_ex_date  = _df2.date_input("Date de détachement (ex-date)",
+                                            value=_date.today(), key="div_ex_date")
+            _dv_pay_date = _df3.date_input("Date de paiement (optionnel)",
+                                            value=_date.today(), key="div_pay_date")
+
+            _df4, _df5, _df6, _df7 = st.columns([2, 2, 1.5, 2])
+            _dv_aps   = _df4.number_input("Montant / action (€)", min_value=0.0,
+                                           step=0.0001, format="%.4f", key="div_aps")
+            _dv_qty   = _df5.number_input("Quantité détenue", min_value=0.0,
+                                           value=_dv_qty_default, step=0.001,
+                                           format="%.6f", key="div_qty")
+            _dv_cur   = _df6.selectbox("Devise", ["EUR", "USD", "GBP", "CHF"], key="div_cur")
+            _dv_notes = _df7.text_input("Notes (optionnel)", key="div_notes")
+
+            _dv_total_preview = _dv_aps * _dv_qty
+            st.markdown(
+                f"<div style='font-size:13px;color:{_C_GAIN};font-weight:600;padding:4px 0;'>"
+                f"Total : {_dv_total_preview:,.4f} {_dv_cur}</div>",
+                unsafe_allow_html=True,
+            )
+            _dv_submit = st.form_submit_button("Enregistrer le dividende", type="primary")
+            if _dv_submit and _dv_tk and _dv_aps > 0 and _dv_qty > 0:
+                add_dividend(
+                    ticker=_dv_tk,
+                    name=_dv_name,
+                    ex_date=_dv_ex_date.isoformat(),
+                    amount_per_share=_dv_aps,
+                    quantity=_dv_qty,
+                    pay_date=_dv_pay_date.isoformat(),
+                    currency=_dv_cur,
+                    notes=_dv_notes or None,
+                )
+                st.success(f"Dividende enregistré : {_dv_total_preview:,.4f} {_dv_cur} pour {_dv_tk}.")
+                st.rerun()
+
+        # ── Dividend history ──────────────────────────────────────────────────
+        if _all_divs:
+            st.divider()
+            st.subheader("Historique des dividendes reçus")
+
+            # Bar chart — monthly
+            _dv_hist_df = pd.DataFrame(_all_divs)
+            _dv_hist_df["month"] = pd.to_datetime(_dv_hist_df["ex_date"]).dt.to_period("M").astype(str)
+            _dv_monthly = _dv_hist_df.groupby("month")["total_received"].sum().reset_index()
+            if not _dv_monthly.empty:
+                fig_dv = go.Figure(go.Bar(
+                    x=_dv_monthly["month"], y=_dv_monthly["total_received"],
+                    marker_color=_C_GAIN, opacity=0.85,
+                    text=[f"{v:.2f} €" for v in _dv_monthly["total_received"]],
+                    textposition="outside", textfont=dict(size=10, color=_TEXT),
+                    hovertemplate="%{x}<br><b>%{y:,.2f} €</b><extra></extra>",
+                ))
+                fig_dv.update_layout(
+                    **{**_CHART, "margin": dict(l=0, r=0, t=8, b=0)},
+                    height=240,
+                    xaxis=dict(gridcolor=_BORDER, tickfont=dict(size=10)),
+                    yaxis=dict(gridcolor=_BORDER, title="€"),
+                )
+                st.plotly_chart(fig_dv, use_container_width=True)
+
+            # Detail table with delete
+            for _dv in _all_divs:
+                _dvh1, _dvh2, _dvh3, _dvh4, _dvh5, _dvh6 = st.columns([1, 2, 1.2, 1.2, 2, 0.8])
+                _dvh1.markdown(f"<span style='font-weight:700;font-size:13px;'>{_dv['ticker']}</span>", unsafe_allow_html=True)
+                _dvh2.markdown(f"<span style='font-size:11px;color:{_MUTED};'>{_dv['name']}</span>", unsafe_allow_html=True)
+                _dvh3.markdown(f"<span style='font-size:11px;'>Ex : {_dv['ex_date']}</span>", unsafe_allow_html=True)
+                _dvh4.markdown(f"<span style='font-size:12px;font-weight:600;color:{_C_GAIN};'>{_dv['total_received']:,.4f} {_dv['currency']}</span>", unsafe_allow_html=True)
+                _dvh5.markdown(f"<span style='font-size:10px;color:{_MUTED};'>{_dv.get('notes') or ''}</span>", unsafe_allow_html=True)
+                if _dvh6.button("✕", key=f"del_div_{_dv['id']}", help="Supprimer"):
+                    delete_dividend(_dv["id"])
+                    st.rerun()
+                st.markdown(f"<div style='height:1px;background:{_BORDER};margin:2px 0;'></div>", unsafe_allow_html=True)
+        else:
+            st.caption("Aucun dividende enregistré pour l'instant.")
+
+
     # ══════════════════════════════════════════════════════════════════════════════
 # TAB 3 — ₿ Crypto
 # ══════════════════════════════════════════════════════════════════════════════
@@ -2182,6 +3606,13 @@ with tab_crypto:
             st.subheader("Détail des positions")
             st.dataframe(_fmt_df(df_c), width="stretch", hide_index=True)
 
+            # Quick buy strip
+            _qbc_tickers = df_c["Ticker"].tolist()
+            _qbc_cols = st.columns(min(len(_qbc_tickers), 8))
+            for _qbc_col, _qbc_tk in zip(_qbc_cols, _qbc_tickers):
+                with _qbc_col:
+                    _render_exchange_links(_qbc_tk, "crypto", compact=True)
+
             st.divider()
             st.subheader("Fiche détail — analyse d'une crypto")
             ticker_opts_c = ["— Sélectionner une crypto —"] + sorted(df_c["Ticker"].tolist())
@@ -2268,6 +3699,11 @@ with tab_crypto:
                     with cc4:
                         cfees = st.number_input("Frais (€)", min_value=0.0,
                                                 step=0.01, format="%.2f", value=0.0, key="c_fees")
+                    _cry_plat_opts = ["— Non précisé"] + CRYPTO_PLATFORM_NAMES
+                    _cry_platform  = st.selectbox(
+                        "Exchange d'achat", _cry_plat_opts, key="cry_platform_sel",
+                        help="Mémorisé pour adapter le bouton Acheter et les mails d'alerte.",
+                    )
                     if cqty > 0 and cprice > 0:
                         cpru = (cqty * cprice + cfees) / cqty
                         st.caption(f"PRU calculé : {cpru:.6f} € (frais inclus)")
@@ -2279,10 +3715,12 @@ with tab_crypto:
                         st.error("Quantité et prix doivent être > 0.")
                     else:
                         try:
+                            _cry_plat_val = None if _cry_platform == "— Non précisé" else _cry_platform
                             add_transaction(ticker_c, name_c, ctx_date.isoformat(),
                                             cqty, cprice, cfees, currency="EUR",
                                             asset_class="crypto",
-                                            coingecko_id=st.session_state.crypto_prefill_id or None)
+                                            coingecko_id=st.session_state.crypto_prefill_id or None,
+                                            platform=_cry_plat_val)
                             st.success(f"{cqty:.6f} × {ticker_c} enregistré — PRU mis à jour.")
                             for k in ("crypto_prefill_ticker", "crypto_prefill_name", "crypto_prefill_id"):
                                 st.session_state[k] = ""
@@ -2365,31 +3803,144 @@ with tab_crypto:
                     if ccur_price is None:
                         st.caption("Cours non disponible sur CoinGecko — symbole non reconnu.")
 
+                    _render_exchange_links(cp["ticker"], "crypto")
+                    st.markdown("---")
                     st.caption("Historique des transactions")
-                    chdr = st.columns([1, 2, 2, 2, 2, 1])
-                    for col, lbl in zip(chdr, ["Type", "Date", "Quantité", "Prix unitaire", "Frais", ""]):
-                        col.markdown(
-                            f"<span style='font-size:10px;color:#94a3b8;"
-                            f"text-transform:uppercase;letter-spacing:0.05em;'>{lbl}</span>",
+                    _cry_hdr = st.columns([1.2, 1.5, 1.5, 2, 1.2, 1.8, 1])
+                    for _chc, _chl in zip(_cry_hdr, ["Type", "Date", "Quantité", "Prix unitaire", "Frais", "Exchange", ""]):
+                        _chc.markdown(
+                            f"<span style='font-size:10px;color:{_MUTED};"
+                            f"text-transform:uppercase;letter-spacing:0.05em;'>{_chl}</span>",
                             unsafe_allow_html=True,
                         )
                     for ct in ctxs:
-                        is_buy = ct["quantity"] >= 0
-                        tx_type = "Achat" if is_buy else "Retrait"
-                        tx_color = _C_GAIN if is_buy else _C_LOSS
-                        ctc0, ctc1, ctc2, ctc3, ctc4, ctc5 = st.columns([1, 2, 2, 2, 2, 1])
-                        ctc0.markdown(
-                            f"<span style='font-size:11px;color:{tx_color};font-weight:600;'>"
-                            f"{tx_type}</span>", unsafe_allow_html=True
+                        _ct_buy = ct["quantity"] >= 0
+                        _ct_col = _C_GAIN if _ct_buy else _C_LOSS
+                        _ct_type = "Achat" if _ct_buy else "Retrait"
+                        _ctc0, _ctc1, _ctc2, _ctc3, _ctc4, _ctc5, _ctc6 = st.columns([1.2, 1.5, 1.5, 2, 1.2, 1.8, 1])
+                        _ctc0.markdown(
+                            f"<span style='font-size:11px;color:{_ct_col};font-weight:600;'>"
+                            f"{_ct_type}</span>", unsafe_allow_html=True
                         )
-                        ctc1.write(ct["tx_date"])
-                        ctc2.write(f"{ct['quantity']:+.4f}")
-                        ctc3.write(f"{ct['price']:.8f} €")
-                        ctc4.write(f"{ct['fees']:.2f} €" if ct["fees"] else "—")
-                        with ctc5:
-                            if st.button("✕", key=f"del_ctx_{ct['id']}"):
-                                delete_transaction(ct["id"])
-                                st.rerun()
+                        _ctc1.write(ct["tx_date"])
+                        _ctc2.write(f"{ct['quantity']:+.4f}")
+                        _ctc3.write(f"{ct['price']:.8f} €")
+                        _ctc4.write(f"{ct['fees']:.2f} €" if ct["fees"] else "—")
+                        _cpf = ct.get("platform") or "—"
+                        _ctc5.markdown(
+                            f"<span style='font-size:11px;color:{_MUTED};'>{_cpf}</span>",
+                            unsafe_allow_html=True,
+                        )
+                        with _ctc6:
+                            _cea, _cda = st.columns(2)
+                            with _cea:
+                                if st.button("✎", key=f"edit_cry_tx_{ct['id']}", help="Modifier"):
+                                    st.session_state["editing_tx_id"] = (
+                                        None if st.session_state["editing_tx_id"] == ct["id"] else ct["id"]
+                                    )
+                                    st.rerun()
+                            with _cda:
+                                if st.button("✕", key=f"del_ctx_{ct['id']}", help="Supprimer"):
+                                    delete_transaction(ct["id"])
+                                    if st.session_state["editing_tx_id"] == ct["id"]:
+                                        st.session_state["editing_tx_id"] = None
+                                    st.rerun()
+
+                    # ── Inline edit form ──────────────────────────────────────
+                    _cry_editing_id = st.session_state.get("editing_tx_id")
+                    _cry_edit_tx = next((ct for ct in ctxs if ct["id"] == _cry_editing_id), None)
+                    if _cry_edit_tx:
+                        _cetx_id = _cry_edit_tx["id"]
+                        st.markdown(
+                            f"<div style='background:{_SURFACE};border:1px solid {_C_WARN}44;"
+                            f"border-left:3px solid {_C_WARN};padding:12px 16px;margin:10px 0;"
+                            f"font-size:11px;color:{_C_WARN};text-transform:uppercase;"
+                            f"letter-spacing:0.07em;font-weight:700;'>✎ Modifier — transaction #{_cetx_id}</div>",
+                            unsafe_allow_html=True,
+                        )
+                        with st.form(f"cry_edit_form_{_cry_edit_tx['id']}", clear_on_submit=False):
+                            _cef1, _cef2 = st.columns(2)
+                            with _cef1:
+                                _ce_type = st.radio(
+                                    "Type", ["Achat", "Retrait/Vente"],
+                                    index=0 if _cry_edit_tx["quantity"] >= 0 else 1,
+                                    horizontal=True, key=f"ce_type_{_cry_edit_tx['id']}",
+                                )
+                                _ce_date = st.date_input(
+                                    "Date",
+                                    value=_date.fromisoformat(_cry_edit_tx["tx_date"]),
+                                    key=f"ce_date_{_cry_edit_tx['id']}",
+                                )
+                                _ce_qty = st.number_input(
+                                    "Quantité (absolue)",
+                                    min_value=0.000001,
+                                    value=abs(_cry_edit_tx["quantity"]),
+                                    format="%.8f", key=f"ce_qty_{_cry_edit_tx['id']}",
+                                )
+                                _ce_price = st.number_input(
+                                    "Prix unitaire (€)",
+                                    min_value=0.0,
+                                    value=float(_cry_edit_tx["price"]),
+                                    format="%.8f", key=f"ce_price_{_cry_edit_tx['id']}",
+                                )
+                            with _cef2:
+                                _ce_fees = st.number_input(
+                                    "Frais",
+                                    min_value=0.0,
+                                    value=float(_cry_edit_tx["fees"]),
+                                    format="%.6f", key=f"ce_fees_{_cry_edit_tx['id']}",
+                                )
+                                _ce_name = st.text_input(
+                                    "Nom de l'actif",
+                                    value=_cry_edit_tx.get("name", ""),
+                                    key=f"ce_name_{_cry_edit_tx['id']}",
+                                )
+                                _ce_cgid = st.text_input(
+                                    "CoinGecko ID",
+                                    value=_cry_edit_tx.get("coingecko_id") or "",
+                                    placeholder="ex : bitcoin, solana, kaspa",
+                                    key=f"ce_cgid_{_cry_edit_tx['id']}",
+                                )
+                                _cry_pf_all = ["— Non précisé"] + CRYPTO_PLATFORM_NAMES
+                                _cry_pf_cur = _cry_edit_tx.get("platform") or "— Non précisé"
+                                _cry_pf_idx = _cry_pf_all.index(_cry_pf_cur) if _cry_pf_cur in _cry_pf_all else 0
+                                _ce_platform = st.selectbox(
+                                    "Exchange",
+                                    _cry_pf_all,
+                                    index=_cry_pf_idx,
+                                    key=f"ce_plat_{_cry_edit_tx['id']}",
+                                )
+                            _cef_save, _cef_cancel = st.columns(2)
+                            with _cef_save:
+                                _ce_saved = st.form_submit_button(
+                                    "Enregistrer les modifications",
+                                    type="primary", use_container_width=True,
+                                )
+                            with _cef_cancel:
+                                _ce_cancelled = st.form_submit_button(
+                                    "Annuler", use_container_width=True
+                                )
+
+                        if _ce_saved:
+                            _csigned_qty = _ce_qty if _ce_type == "Achat" else -_ce_qty
+                            _cplat_save  = None if _ce_platform == "— Non précisé" else _ce_platform
+                            update_transaction(
+                                _cry_edit_tx["id"],
+                                tx_date=_ce_date.isoformat(),
+                                quantity=_csigned_qty,
+                                price=_ce_price,
+                                fees=_ce_fees,
+                                currency="EUR",
+                                name=_ce_name or cp["name"],
+                                platform=_cplat_save,
+                                coingecko_id=_ce_cgid.strip() or None,
+                            )
+                            st.session_state["editing_tx_id"] = None
+                            st.success("Transaction mise à jour.")
+                            st.rerun()
+                        if _ce_cancelled:
+                            st.session_state["editing_tx_id"] = None
+                            st.rerun()
 
                     st.markdown("---")
                     if st.button(f"Supprimer {cp['ticker']}", key=f"del_cpos_{cp['ticker']}"):
@@ -2799,3 +4350,713 @@ with tab_crypto:
                             update_suggestion_scores(cs["id"], new_ca, new_cd, new_cnotes)
                             st.success("Score enregistré.")
                             st.rerun()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 4 — Alertes de cours
+# ══════════════════════════════════════════════════════════════════════════════
+
+with tab_alerts:
+
+    # ── Canaux de notification ────────────────────────────────────────────────
+    _smtp_ok  = smtp_configured()
+    _tg_ok    = telegram_configured()
+    _dc_ok    = discord_configured()
+
+    def _notif_badge(ok: bool, label_on: str, label_off: str, hint: str = "") -> str:
+        c = _C_GAIN if ok else _C_LOSS
+        lbl = label_on if ok else label_off
+        h = f"<span style='font-size:10px;color:{_MUTED};margin-left:8px;'>{hint}</span>" if (not ok and hint) else ""
+        return (
+            f"<div style='display:inline-flex;align-items:center;gap:8px;"
+            f"background:{_SURFACE};border:1px solid {c}33;"
+            f"padding:7px 14px;margin-right:8px;margin-bottom:10px;'>"
+            f"<span style='width:7px;height:7px;background:{c};display:inline-block;border-radius:50%;'></span>"
+            f"<span style='font-size:11px;color:{c};font-weight:700;"
+            f"text-transform:uppercase;letter-spacing:0.07em;'>{lbl}</span>{h}</div>"
+        )
+
+    st.markdown(
+        _notif_badge(_smtp_ok,  "✉ Email activé",     "✉ Email désactivé",
+                     "→ SMTP_HOST / SMTP_USER / SMTP_PASS dans .env")
+        + _notif_badge(_tg_ok,  "✈ Telegram activé",  "✈ Telegram désactivé",
+                     "→ TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID dans .env")
+        + _notif_badge(_dc_ok,  "# Discord activé",   "# Discord désactivé",
+                     "→ DISCORD_WEBHOOK_URL dans .env"),
+        unsafe_allow_html=True,
+    )
+
+    # ── Config Telegram ───────────────────────────────────────────────────────
+    with st.expander("⚙️ Configurer Telegram", expanded=not _tg_ok):
+        st.markdown(
+            "**1.** Ouvre Telegram et cherche **@BotFather** → `/newbot` → copie le token.\n\n"
+            "**2.** Envoie un message à ton bot, puis récupère le `chat_id` via :\n"
+            "`https://api.telegram.org/bot<TOKEN>/getUpdates`\n\n"
+            "**3.** Ajoute ces deux lignes dans ton fichier `.env` :"
+        )
+        st.code("TELEGRAM_BOT_TOKEN=123456:ABCdef...\nTELEGRAM_CHAT_ID=123456789", language="bash")
+        _tg_test_tok = st.text_input("Token (test)",    key="tg_test_token",
+                                     value=os.getenv("TELEGRAM_BOT_TOKEN", ""),
+                                     type="password", placeholder="123456:ABCdef…")
+        _tg_test_cid = st.text_input("Chat ID (test)",  key="tg_test_chatid",
+                                     value=os.getenv("TELEGRAM_CHAT_ID", ""),
+                                     placeholder="123456789")
+        if st.button("Envoyer un message test", key="tg_test_btn"):
+            if _tg_test_tok and _tg_test_cid:
+                _ok_t, _err_t = send_telegram_test(_tg_test_tok.strip(), _tg_test_cid.strip())
+                if _ok_t:
+                    st.success("Message Telegram envoyé avec succès !")
+                else:
+                    st.error(f"Échec : {_err_t}")
+            else:
+                st.warning("Remplis le token et le chat_id pour tester.")
+
+    # ── Config Discord ────────────────────────────────────────────────────────
+    with st.expander("⚙️ Configurer Discord", expanded=not _dc_ok):
+        st.markdown(
+            "**1.** Dans Discord, ouvre les paramètres du channel → **Intégrations** → **Webhooks** → **Nouveau webhook**.\n\n"
+            "**2.** Copie l'URL du webhook.\n\n"
+            "**3.** Ajoute-la dans ton `.env` :"
+        )
+        st.code("DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...", language="bash")
+        _dc_test_url = st.text_input("Webhook URL (test)", key="dc_test_url",
+                                     value=os.getenv("DISCORD_WEBHOOK_URL", ""),
+                                     type="password",
+                                     placeholder="https://discord.com/api/webhooks/…")
+        if st.button("Envoyer un message test", key="dc_test_btn"):
+            if _dc_test_url:
+                _ok_d, _err_d = send_discord_test(_dc_test_url.strip())
+                if _ok_d:
+                    st.success("Message Discord envoyé avec succès !")
+                else:
+                    st.error(f"Échec : {_err_d}")
+            else:
+                st.warning("Remplis l'URL du webhook pour tester.")
+
+    al_col, ar_col = st.columns([3, 2])
+
+    # ── Création d'une alerte ─────────────────────────────────────────────────
+    _PURPOSE_KEYS = list(ALERT_PURPOSE_META.keys())
+    _PURPOSE_DISPLAY = {k: f"{v['icon']} {v['label']}" for k, v in ALERT_PURPOSE_META.items()}
+
+    with al_col:
+        st.subheader("Créer une alerte")
+        with st.form("alert_create_form", clear_on_submit=True):
+            af1, af2 = st.columns([2, 2])
+            with af1:
+                _al_ticker = st.text_input(
+                    "Ticker", placeholder="BTC, NVDA, ETH…", key="al_ticker"
+                ).strip().upper()
+            with af2:
+                _al_class = st.selectbox(
+                    "Classe d'actif", ["stock", "crypto"], key="al_class",
+                    format_func=lambda v: "Bourse / ETF" if v == "stock" else "Crypto",
+                )
+            _al_purpose = st.selectbox(
+                "Type d'alerte",
+                options=_PURPOSE_KEYS,
+                format_func=lambda k: _PURPOSE_DISPLAY[k],
+                key="al_purpose",
+            )
+            # Dynamic hint based on selected purpose
+            _al_hint_meta = ALERT_PURPOSE_META[_al_purpose if _al_purpose else "buy_target"]
+            st.caption(f"Condition : {_al_hint_meta['hint']}")
+
+            _al_threshold = st.number_input(
+                "Seuil (€)", min_value=0.0, step=0.01, format="%.6f", key="al_threshold"
+            )
+            _al_label = st.text_input(
+                "Label (optionnel)",
+                placeholder="ex : zone d'achat, résistance clé…",
+                key="al_label",
+            )
+            _al_submit = st.form_submit_button(
+                "Créer l'alerte", type="primary", use_container_width=True
+            )
+
+        if _al_submit:
+            if not _al_ticker:
+                st.error("Le ticker est obligatoire.")
+            elif _al_threshold <= 0:
+                st.error("Le seuil doit être > 0.")
+            elif not re.match(r"^[A-Z0-9.\-]{1,20}$", _al_ticker):
+                st.error("Ticker invalide (caractères autorisés : lettres, chiffres, . -).")
+            else:
+                try:
+                    _auto_label = _al_label or ALERT_PURPOSE_META[_al_purpose]["label"]
+                    add_alert(_al_ticker, _al_class, _al_purpose, _al_threshold, _auto_label)
+                    _icon = ALERT_PURPOSE_META[_al_purpose]["icon"]
+                    st.success(
+                        f"Alerte créée : {_al_ticker} — "
+                        f"{_icon} {ALERT_PURPOSE_META[_al_purpose]['label']} {_al_threshold:,.4f} €"
+                    )
+                    st.rerun()
+                except Exception as _ae:
+                    st.error(f"Erreur : {_ae}")
+
+    # ── Vérification manuelle ─────────────────────────────────────────────────
+    with ar_col:
+        st.subheader("Vérification manuelle")
+        st.caption(
+            "Les alertes sont vérifiées automatiquement au chargement de l'app. "
+            "Lance une vérification manuelle à tout moment."
+        )
+        if st.button("Vérifier maintenant", type="secondary", use_container_width=True, key="al_check_now"):
+            _manual_actives = get_alerts(active_only=True)
+            if not _manual_actives:
+                st.info("Aucune alerte active.")
+            else:
+                _manual_tickers_stk = [
+                    a["ticker"] for a in _manual_actives if a["asset_class"] == "stock"
+                ]
+                _manual_tickers_cry = [
+                    a["ticker"] for a in _manual_actives if a["asset_class"] == "crypto"
+                ]
+                _manual_prices: dict[str, float] = {}
+                if _manual_tickers_stk:
+                    with st.spinner("Récupération cours bourse…"):
+                        _manual_prices.update(get_current_prices(_manual_tickers_stk))
+                if _manual_tickers_cry:
+                    with st.spinner("Récupération cours crypto…"):
+                        _manual_prices.update(get_crypto_prices(_manual_tickers_cry))
+
+                _manual_triggered = check_alerts(_manual_prices)
+                if _manual_triggered:
+                    if _smtp_ok:
+                        ok_mail, err_mail = send_alert_email(_manual_triggered)
+                    if telegram_configured():
+                        send_telegram(_manual_triggered)
+                    if discord_configured():
+                        send_discord(_manual_triggered)
+                    for _mt in _manual_triggered:
+                        _mtm = ALERT_PURPOSE_META.get(_mt["alert_type"], ALERT_PURPOSE_META["above"])
+                        st.error(
+                            f"**{_mt['ticker']}** — {_mtm['icon']} {_mtm['label']} "
+                            f"{_mt['threshold']:,.4f} · Cours : {_mt.get('current_price', '—'):,.4f}"
+                        )
+                    if _smtp_ok and ok_mail:
+                        st.success("Email envoyé.")
+                    elif _smtp_ok and not ok_mail:
+                        st.warning(f"Email non envoyé : {err_mail}")
+                    if telegram_configured():
+                        st.success("Notification Telegram envoyée.")
+                    if discord_configured():
+                        st.success("Notification Discord envoyée.")
+                else:
+                    st.success(
+                        f"Aucun seuil franchi parmi {len(_manual_actives)} alerte(s) active(s)."
+                    )
+                st.session_state["alerts_checked"] = True
+
+    st.divider()
+
+    # ── Liste des alertes actives ─────────────────────────────────────────────
+    st.subheader("Alertes actives")
+    _all_alerts = get_alerts(active_only=False)
+    _active_list = [a for a in _all_alerts if a["active"]]
+    _triggered_list = [a for a in _all_alerts if not a["active"]]
+
+    if not _active_list:
+        st.info("Aucune alerte active. Crée-en une ci-dessus.")
+    else:
+        _ah_cols = st.columns([1.5, 1, 1.5, 2, 1.5, 1])
+        for _hcol, _hlbl in zip(
+            _ah_cols, ["Ticker", "Classe", "Condition", "Seuil", "Label", ""]
+        ):
+            _hcol.markdown(
+                f"<span style='font-size:10px;color:{_MUTED};"
+                f"text-transform:uppercase;letter-spacing:0.06em;'>{_hlbl}</span>",
+                unsafe_allow_html=True,
+            )
+
+        for _al in _active_list:
+            _ar1, _ar2, _ar3, _ar4, _ar5, _ar6 = st.columns([1.5, 1, 1.5, 2, 1.5, 1])
+            _alm = ALERT_PURPOSE_META.get(_al["alert_type"], ALERT_PURPOSE_META["above"])
+            _al_dir_col = _C_GAIN if _alm["condition"] == "above" else _C_LOSS
+            _ar1.markdown(
+                f"<span style='font-weight:700;color:{_TEXT};'>{_al['ticker']}</span>",
+                unsafe_allow_html=True,
+            )
+            _ar2.markdown(
+                f"<span style='font-size:11px;color:{_MUTED};'>"
+                f"{'Bourse' if _al['asset_class']=='stock' else 'Crypto'}</span>",
+                unsafe_allow_html=True,
+            )
+            _ar3.markdown(
+                f"<span style='color:{_al_dir_col};font-weight:600;font-size:12px;'>"
+                f"{_alm['icon']} {_alm['label']}</span>",
+                unsafe_allow_html=True,
+            )
+            _ar4.markdown(
+                f"<span style='font-weight:700;color:{_TEXT};'>{_al['threshold']:,.6f} €</span>",
+                unsafe_allow_html=True,
+            )
+            _ar5.markdown(
+                f"<span style='font-size:11px;color:{_MUTED};'>"
+                f"{_al.get('label') or '—'}</span>",
+                unsafe_allow_html=True,
+            )
+            with _ar6:
+                if st.button("✕", key=f"del_al_{_al['id']}", help="Supprimer"):
+                    delete_alert(_al["id"])
+                    st.rerun()
+
+    # ── Historique des alertes déclenchées ───────────────────────────────────
+    if _triggered_list:
+        st.divider()
+        st.subheader("Alertes déclenchées")
+        st.caption(
+            f"{len(_triggered_list)} alerte(s) désactivée(s). "
+            "Réactivez-en une pour la remettre en surveillance."
+        )
+
+        _th_cols = st.columns([1.5, 1, 1.5, 2, 1.5, 1.5, 1])
+        for _thc, _thl in zip(
+            _th_cols,
+            ["Ticker", "Classe", "Condition", "Seuil", "Label", "Déclenché le", ""],
+        ):
+            _thc.markdown(
+                f"<span style='font-size:10px;color:{_MUTED};"
+                f"text-transform:uppercase;letter-spacing:0.06em;'>{_thl}</span>",
+                unsafe_allow_html=True,
+            )
+
+        for _tl in _triggered_list:
+            _tr1, _tr2, _tr3, _tr4, _tr5, _tr6, _tr7 = st.columns([1.5, 1, 1.5, 2, 1.5, 1.5, 1])
+            _tlm = ALERT_PURPOSE_META.get(_tl["alert_type"], ALERT_PURPOSE_META["above"])
+            _tl_dir_col = _C_GAIN if _tlm["condition"] == "above" else _C_LOSS
+            _tr1.markdown(
+                f"<span style='font-weight:700;color:{_MUTED};'>{_tl['ticker']}</span>",
+                unsafe_allow_html=True,
+            )
+            _tr2.markdown(
+                f"<span style='font-size:11px;color:{_MUTED};'>"
+                f"{'Bourse' if _tl['asset_class']=='stock' else 'Crypto'}</span>",
+                unsafe_allow_html=True,
+            )
+            _tr3.markdown(
+                f"<span style='color:{_tl_dir_col};opacity:0.6;font-size:12px;'>"
+                f"{_tlm['icon']} {_tlm['label']}</span>",
+                unsafe_allow_html=True,
+            )
+            _tr4.markdown(
+                f"<span style='color:{_MUTED};'>{_tl['threshold']:,.6f} €</span>",
+                unsafe_allow_html=True,
+            )
+            _tr5.markdown(
+                f"<span style='font-size:11px;color:{_MUTED};'>"
+                f"{_tl.get('label') or '—'}</span>",
+                unsafe_allow_html=True,
+            )
+            _triggered_at = (_tl.get("triggered_at") or "")[:16].replace("T", " ")
+            _tr6.markdown(
+                f"<span style='font-size:11px;color:{_MUTED};'>{_triggered_at}</span>",
+                unsafe_allow_html=True,
+            )
+            with _tr7:
+                if st.button("Réarmer", key=f"rearm_{_tl['id']}", help="Réactiver cette alerte"):
+                    rearm_alert(_tl["id"])
+                    st.rerun()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 5 — Watchlist
+# ══════════════════════════════════════════════════════════════════════════════
+
+with tab_watchlist:
+    st.markdown("### ◎ Watchlist")
+    st.caption("Tickers surveillés sans position ouverte. Cours et variation en temps quasi-réel.")
+
+    # ── Add form ──────────────────────────────────────────────────────────────
+    with st.expander("➕ Ajouter un ticker", expanded=False):
+        _wl_class = st.radio("Classe d'actif", ["Actions / ETF", "Crypto"],
+                             horizontal=True, key="wl_add_class")
+        _wl_is_crypto = _wl_class == "Crypto"
+
+        if _wl_is_crypto:
+            _wl_q = st.text_input("Rechercher une crypto", key="wl_search_crypto",
+                                  placeholder="Bitcoin, Ethereum, SOL…")
+            if _wl_q:
+                _wl_results = search_crypto(_wl_q)
+                if _wl_results:
+                    _wl_opts = {f"{r['name']} ({r['symbol'].upper()})": r for r in _wl_results}
+                    _wl_sel_key = st.selectbox("Résultats", list(_wl_opts.keys()), key="wl_sel_crypto")
+                    _wl_sel = _wl_opts[_wl_sel_key]
+                    _wl_note_c = st.text_input("Note (optionnelle)", key="wl_note_crypto")
+                    if st.button("Ajouter à la watchlist", key="wl_add_crypto_btn", type="primary"):
+                        add_watchlist_item(
+                            ticker=_wl_sel["symbol"].upper(),
+                            name=_wl_sel["name"],
+                            asset_class="crypto",
+                            coingecko_id=_wl_sel.get("id"),
+                            note=_wl_note_c or None,
+                        )
+                        st.success(f"{_wl_sel['name']} ajouté à la watchlist.")
+                        st.rerun()
+                else:
+                    st.caption("Aucun résultat.")
+        else:
+            _wl_q = st.text_input("Rechercher une action / ETF", key="wl_search_stock",
+                                  placeholder="Apple, LVMH, MSCI World…")
+            if _wl_q:
+                _wl_results = search_tickers(_wl_q)
+                if _wl_results:
+                    _wl_opts = {f"{r['name']} ({r['ticker']})": r for r in _wl_results}
+                    _wl_sel_key = st.selectbox("Résultats", list(_wl_opts.keys()), key="wl_sel_stock")
+                    _wl_sel = _wl_opts[_wl_sel_key]
+                    _wl_note_s = st.text_input("Note (optionnelle)", key="wl_note_stock")
+                    if st.button("Ajouter à la watchlist", key="wl_add_stock_btn", type="primary"):
+                        add_watchlist_item(
+                            ticker=_wl_sel["ticker"],
+                            name=_wl_sel["name"],
+                            asset_class="stock",
+                            note=_wl_note_s or None,
+                        )
+                        st.success(f"{_wl_sel['name']} ajouté à la watchlist.")
+                        st.rerun()
+                else:
+                    st.caption("Aucun résultat.")
+
+    # ── Load watchlist items ──────────────────────────────────────────────────
+    _wl_items = get_watchlist()
+
+    if not _wl_items:
+        st.info("Watchlist vide. Ajoute des tickers via le formulaire ci-dessus.")
+    else:
+        # Fetch prices for all items
+        _wl_stk_tks = [w["ticker"] for w in _wl_items if w["asset_class"] == "stock"]
+        _wl_cry_items = [w for w in _wl_items if w["asset_class"] == "crypto"]
+        _wl_prices: dict[str, float] = {}
+
+        with st.spinner("Chargement des cours…"):
+            if _wl_stk_tks:
+                try:
+                    _wl_prices.update(get_current_prices(_wl_stk_tks))
+                except Exception:
+                    pass
+            if _wl_cry_items:
+                try:
+                    _wl_cry_id_ov = {w["ticker"]: w["coingecko_id"]
+                                     for w in _wl_cry_items if w.get("coingecko_id")}
+                    _wl_cry_prices = get_crypto_prices(
+                        [w["ticker"] for w in _wl_cry_items],
+                        id_overrides=_wl_cry_id_ov or None,
+                    )
+                    _wl_prices.update(_wl_cry_prices)
+                except Exception:
+                    pass
+
+        # Fetch 5-day history for daily change
+        _wl_day_chg: dict[str, float] = {}
+        with st.spinner("Variation 24h…"):
+            for _witem in _wl_items:
+                _wtk = _witem["ticker"]
+                try:
+                    if _witem["asset_class"] == "crypto":
+                        _wid_ov = ((_wtk, _witem["coingecko_id"]),) if _witem.get("coingecko_id") else ()
+                        _ws = cached_crypto_raw_history(_wtk, 3, _wid_ov)
+                    else:
+                        _ws = cached_raw_history(_wtk, "5d")
+                    if len(_ws) >= 2:
+                        _wl_day_chg[_wtk] = (_ws.iloc[-1] - _ws.iloc[-2]) / _ws.iloc[-2] * 100
+                except Exception:
+                    pass
+
+        # ── Header row ────────────────────────────────────────────────────────
+        _wl_h1, _wl_h2, _wl_h3, _wl_h4, _wl_h5, _wl_h6, _wl_h7 = st.columns(
+            [1.2, 2.5, 1, 1.2, 1, 2.5, 1.8]
+        )
+        for _hcol, _hlbl in zip(
+            [_wl_h1, _wl_h2, _wl_h3, _wl_h4, _wl_h5, _wl_h6, _wl_h7],
+            ["TICKER", "NOM", "CLASSE", "COURS", "VAR 24H", "NOTE", "ACTIONS"],
+        ):
+            _hcol.markdown(
+                f"<div style='font-size:9px;color:{_MUTED};letter-spacing:0.07em;"
+                f"font-weight:600;padding-bottom:4px;border-bottom:1px solid {_BORDER};'>"
+                f"{_hlbl}</div>",
+                unsafe_allow_html=True,
+            )
+
+        st.write("")
+
+        for _wi in _wl_items:
+            _wtk      = _wi["ticker"]
+            _wac      = _wi["asset_class"]
+            _wprice   = _wl_prices.get(_wtk.upper())
+            _wchg     = _wl_day_chg.get(_wtk)
+            _wac_col  = _C_CRYPTO if _wac == "crypto" else _C_GAIN
+            _wac_lbl  = "₿ Crypto" if _wac == "crypto" else "◈ Stock"
+            _wchg_col = (_C_GAIN if _wchg >= 0 else _C_LOSS) if _wchg is not None else _MUTED
+            _wchg_str = (f"{_wchg:+.2f}%" if _wchg is not None else "—")
+            _wprice_str = f"{_wprice:,.4f} €" if _wprice else "—"
+
+            _wc1, _wc2, _wc3, _wc4, _wc5, _wc6, _wc7 = st.columns(
+                [1.2, 2.5, 1, 1.2, 1, 2.5, 1.8]
+            )
+
+            _wc1.markdown(
+                f"<span style='font-weight:700;color:{_TEXT};font-size:13px;'>{_wtk}</span>",
+                unsafe_allow_html=True,
+            )
+            _wc2.markdown(
+                f"<span style='font-size:12px;color:{_MUTED};'>{_wi['name']}</span>",
+                unsafe_allow_html=True,
+            )
+            _wc3.markdown(
+                f"<span style='font-size:10px;font-weight:700;color:{_wac_col};'>{_wac_lbl}</span>",
+                unsafe_allow_html=True,
+            )
+            _wc4.markdown(
+                f"<span style='font-size:12px;font-weight:600;color:{_TEXT};'>{_wprice_str}</span>",
+                unsafe_allow_html=True,
+            )
+            _wc5.markdown(
+                f"<span style='font-size:12px;font-weight:600;color:{_wchg_col};'>{_wchg_str}</span>",
+                unsafe_allow_html=True,
+            )
+
+            # Note (inline editable)
+            with _wc6:
+                _wl_note_key = f"wl_note_edit_{_wi['id']}"
+                _wl_note_val = st.text_input(
+                    "Note", value=_wi.get("note") or "",
+                    key=_wl_note_key, label_visibility="collapsed",
+                    placeholder="Ajouter une note…",
+                )
+                if _wl_note_val != (_wi.get("note") or ""):
+                    update_watchlist_note(_wi["id"], _wl_note_val)
+
+            # Actions
+            with _wc7:
+                _wa1, _wa2, _wa3 = st.columns(3)
+                # Fiche
+                if _wa1.button("◈", key=f"wl_fiche_{_wi['id']}",
+                               help="Ouvrir la fiche"):
+                    _pos_df = _df_stocks if _wac == "stock" else _df_crypto
+                    _pos_prices = _prices_stocks if _wac == "stock" else _prices_crypto
+                    # Build minimal row for fiche if not in portfolio
+                    if not _pos_df.empty and _wtk in _pos_df["Ticker"].values:
+                        _maybe_open_fiche(_wtk, _wac, _pos_df, _pos_prices)
+                    else:
+                        st.toast(f"{_wtk} n'est pas dans le portefeuille — ajoute une transaction d'abord.")
+
+                # Créer une alerte
+                if _wa2.button("◉", key=f"wl_alert_{_wi['id']}",
+                               help="Créer une alerte de cours"):
+                    st.session_state[f"wl_alert_open_{_wi['id']}"] = True
+
+                # Supprimer
+                if _wa3.button("✕", key=f"wl_del_{_wi['id']}",
+                               help="Retirer de la watchlist"):
+                    delete_watchlist_item(_wi["id"])
+                    st.rerun()
+
+            # Quick alert form (inline, appears below the row when triggered)
+            if st.session_state.get(f"wl_alert_open_{_wi['id']}"):
+                with st.form(key=f"wl_alert_form_{_wi['id']}"):
+                    _wal_c1, _wal_c2, _wal_c3, _wal_c4 = st.columns([2, 1.5, 1.5, 1])
+                    _wal_type = _wal_c1.selectbox(
+                        "Type", list(ALERT_PURPOSE_META.keys()),
+                        format_func=lambda k: f"{ALERT_PURPOSE_META[k]['icon']} {ALERT_PURPOSE_META[k]['label']}",
+                        key=f"wl_atype_{_wi['id']}",
+                    )
+                    _wal_thresh = _wal_c2.number_input(
+                        "Seuil", value=float(_wprice or 0), min_value=0.0,
+                        format="%.4f", key=f"wl_athresh_{_wi['id']}",
+                    )
+                    _wal_label = _wal_c3.text_input("Label", key=f"wl_alabel_{_wi['id']}")
+                    _wal_c4.write("")
+                    _wal_c4.write("")
+                    _wal_submit = _wal_c4.form_submit_button("Créer", type="primary")
+                    if _wal_submit:
+                        add_alert(_wtk, _wac, _wal_type, _wal_thresh, _wal_label)
+                        st.session_state.pop(f"wl_alert_open_{_wi['id']}", None)
+                        st.success(f"Alerte créée pour {_wtk}.")
+                        st.rerun()
+
+            st.markdown(
+                f"<div style='height:1px;background:{_BORDER};margin:4px 0;'></div>",
+                unsafe_allow_html=True,
+            )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 6 — 📊 Fiscal
+# ══════════════════════════════════════════════════════════════════════════════
+
+with tab_fiscal:
+    from backend.tax import compute_stock_pv, compute_crypto_pv_2086, available_years
+    import io, csv
+
+    st.markdown("### 📊 Export fiscal — Plus-values réalisées")
+    st.caption(
+        "Actions/ETF : méthode PRU (coût moyen pondéré). "
+        "Crypto : formule 2086 officielle (BOFiP). "
+        "Ces données sont indicatives — consultez un expert-comptable ou fiscaliste."
+    )
+
+    _fy_years = available_years()
+    _fy_col1, _fy_col2 = st.columns([2, 6])
+    with _fy_col1:
+        if _fy_years:
+            _fy_year = st.selectbox("Année fiscale", _fy_years, key="fiscal_year")
+        else:
+            _fy_year = None
+            st.info("Aucune vente enregistrée.")
+
+    # ── SECTION 1 — Actions / ETF ─────────────────────────────────────────────
+    st.divider()
+    st.subheader("◈ Actions / ETF — Plus-values réalisées")
+
+    _stk_lines = compute_stock_pv(year=_fy_year)
+
+    if not _stk_lines:
+        st.caption(f"Aucune vente d'actions/ETF en {_fy_year or 'toutes années'}.")
+    else:
+        _stk_pv   = sum(l["pv_mv"] for l in _stk_lines if l["pv_mv"] > 0)
+        _stk_mv   = sum(l["pv_mv"] for l in _stk_lines if l["pv_mv"] < 0)
+        _stk_net  = _stk_pv + _stk_mv
+        _stk_pfu  = max(0.0, _stk_net) * 0.30
+
+        _fs1, _fs2, _fs3, _fs4 = st.columns(4)
+        _fs1.metric("Plus-values brutes",  f"{_stk_pv:,.2f} €",  delta_color="normal")
+        _fs2.metric("Moins-values",        f"{abs(_stk_mv):,.2f} €", delta_color="inverse")
+        _fs3.metric("PV nette imposable",  f"{_stk_net:+,.2f} €")
+        _fs4.metric("PFU estimé (30 %)",   f"{_stk_pfu:,.2f} €")
+
+        _stk_df = pd.DataFrame([{
+            "Date":            l["date"],
+            "Ticker":          l["ticker"],
+            "Nom":             l["name"],
+            "Qté vendue":      f"{l['qty_sold']:.6f}",
+            "Prix vente/u":    f"{l['prix_vente_unit']:,.4f} €",
+            "PRU":             f"{l['pru']:,.4f} €",
+            "Frais":           f"{l['frais']:.2f} €",
+            "Prix de cession": f"{l['prix_cession_net']:,.2f} €",
+            "Coût d'achat":    f"{l['cout_achat']:,.2f} €",
+            "PV / MV":         f"{l['pv_mv']:+,.2f} €",
+            "PFU estimé":      f"{l['pfu_estime']:,.2f} €",
+        } for l in _stk_lines])
+
+        st.dataframe(_stk_df, hide_index=True, use_container_width=True)
+
+        # CSV export
+        _stk_buf = io.StringIO()
+        _stk_df.to_csv(_stk_buf, index=False, sep=";", decimal=",")
+        st.download_button(
+            label="⬇ Télécharger CSV (Actions/ETF)",
+            data=_stk_buf.getvalue().encode("utf-8-sig"),
+            file_name=f"plus_values_actions_{_fy_year or 'all'}.csv",
+            mime="text/csv",
+            key="dl_stk_csv",
+        )
+
+    # ── SECTION 2 — Crypto / Formulaire 2086 ─────────────────────────────────
+    st.divider()
+    st.subheader("₿ Crypto — Formulaire 2086")
+
+    _cry_result = compute_crypto_pv_2086(year=_fy_year)
+    _cry_lines  = _cry_result["lines"]
+
+    if not _cry_lines:
+        st.caption(f"Aucune cession crypto en {_fy_year or 'toutes années'}.")
+    else:
+        _cf1, _cf2, _cf3, _cf4 = st.columns(4)
+        _cf1.metric("Plus-values brutes",  f"{_cry_result['total_pv']:,.2f} €")
+        _cf2.metric("Moins-values",        f"{_cry_result['total_mv']:,.2f} €", delta_color="inverse")
+        _cf3.metric("PV nette 2086",       f"{_cry_result['total_net']:+,.2f} €")
+        _cf4.metric("PFU estimé (30 %)",   f"{_cry_result['pfu_estime']:,.2f} €")
+
+        st.info(
+            "**Note sur la valeur globale du portefeuille** : pour les cryptos détenues "
+            "hors de la crypto cédée, le PRU est utilisé comme proxy du cours à la date "
+            "de cession (faute d'historique exact). Le calcul est conforme à la logique "
+            "2086 mais reste une estimation — conservez vos relevés d'exchange pour "
+            "reconstituer les valeurs exactes si besoin."
+        )
+
+        _cry_df = pd.DataFrame([{
+            "Date cession":            l["date"],
+            "Crypto":                  l["ticker"],
+            "Nom":                     l["name"],
+            "Qté cédée":               f"{l['qty_sold']:.8f}",
+            "Prix unit. (€)":          f"{l['prix_vente_unit']:,.6f}",
+            "Frais (€)":               f"{l['frais']:.4f}",
+            "Prix cession net (€)":    f"{l['prix_cession_net']:,.4f}",
+            "Valeur globale portef.":  f"{l['valeur_globale_portef']:,.2f}",
+            "Coût global portef.":     f"{l['total_cost_global']:,.2f}",
+            "PV / MV 2086 (€)":        f"{l['pv_mv_2086']:+,.4f}",
+            "PFU estimé (€)":          f"{l['pfu_estime']:,.4f}",
+        } for l in _cry_lines])
+
+        st.dataframe(_cry_df, hide_index=True, use_container_width=True)
+
+        # Récap 2086 lignes (format compatible avec la déclaration)
+        with st.expander("📋 Récapitulatif format déclaration 2086", expanded=False):
+            for i, l in enumerate(_cry_lines, 1):
+                st.markdown(
+                    f"**Ligne {i}** — {l['ticker']} — {l['date']}"
+                )
+                _dl1, _dl2, _dl3, _dl4 = st.columns(4)
+                _dl1.markdown(
+                    f"<div style='font-size:10px;color:{_MUTED};'>Prix de cession</div>"
+                    f"<div style='font-weight:600;'>{l['prix_cession_net']:,.4f} €</div>",
+                    unsafe_allow_html=True,
+                )
+                _dl2.markdown(
+                    f"<div style='font-size:10px;color:{_MUTED};'>Frais de cession</div>"
+                    f"<div style='font-weight:600;'>{l['frais']:.4f} €</div>",
+                    unsafe_allow_html=True,
+                )
+                _dl3.markdown(
+                    f"<div style='font-size:10px;color:{_MUTED};'>Valeur globale du portefeuille</div>"
+                    f"<div style='font-weight:600;'>{l['valeur_globale_portef']:,.4f} €</div>",
+                    unsafe_allow_html=True,
+                )
+                _dl4.markdown(
+                    f"<div style='font-size:10px;color:{_MUTED};'>Prix total d'acquisition</div>"
+                    f"<div style='font-weight:600;'>{l['total_cost_global']:,.4f} €</div>",
+                    unsafe_allow_html=True,
+                )
+                _pv_color = _C_GAIN if l['pv_mv_2086'] >= 0 else _C_LOSS
+                st.markdown(
+                    f"<div style='margin:6px 0 12px;font-size:13px;font-weight:700;"
+                    f"color:{_pv_color};'>→ PV / MV : {l['pv_mv_2086']:+,.4f} €</div>",
+                    unsafe_allow_html=True,
+                )
+                st.markdown(
+                    f"<div style='height:1px;background:{_BORDER};margin-bottom:10px;'></div>",
+                    unsafe_allow_html=True,
+                )
+
+        # CSV export
+        _cry_buf = io.StringIO()
+        _cry_df.to_csv(_cry_buf, index=False, sep=";", decimal=",")
+        st.download_button(
+            label="⬇ Télécharger CSV (Formulaire 2086)",
+            data=_cry_buf.getvalue().encode("utf-8-sig"),
+            file_name=f"formulaire_2086_{_fy_year or 'all'}.csv",
+            mime="text/csv",
+            key="dl_cry_csv",
+        )
+
+    # ── SECTION 3 — Résumé fiscal global ─────────────────────────────────────
+    if _stk_lines or _cry_lines:
+        st.divider()
+        st.subheader("Récapitulatif fiscal global")
+        _glob_pv  = (_stk_pv  if _stk_lines else 0) + _cry_result.get("total_pv", 0)
+        _glob_mv  = (abs(_stk_mv) if _stk_lines else 0) + _cry_result.get("total_mv", 0)
+        _glob_net = (_stk_net if _stk_lines else 0) + _cry_result.get("total_net", 0)
+        _glob_pfu = max(0.0, _glob_net) * 0.30
+
+        _gr1, _gr2, _gr3, _gr4 = st.columns(4)
+        _gr1.metric("PV brutes totales",    f"{_glob_pv:,.2f} €")
+        _gr2.metric("MV totales",           f"{_glob_mv:,.2f} €", delta_color="inverse")
+        _gr3.metric("PV nette totale",      f"{_glob_net:+,.2f} €")
+        _gr4.metric("PFU total estimé",     f"{_glob_pfu:,.2f} €")
+
+        st.caption(
+            "PFU = 30 % (12.8 % IR + 17.2 % prélèvements sociaux) appliqué sur la PV nette positive. "
+            "Les moins-values d'une catégorie (actions ou crypto) ne compensent pas les plus-values "
+            "de l'autre catégorie selon la réglementation française actuelle."
+        )
