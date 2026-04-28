@@ -125,27 +125,27 @@ components.html("""<!DOCTYPE html><html><body style="margin:0;padding:0;overflow
   // ── Background container ──
   var bg = doc.createElement('div');
   bg.id = 'ethereal-bg';
-  bg.style.cssText = 'position:fixed;inset:0;z-index:-1;overflow:hidden;pointer-events:none;background:linear-gradient(135deg,#0a0613 0%,#150d27 100%)';
+  bg.style.cssText = 'position:fixed;inset:0;z-index:-1;overflow:hidden;pointer-events:none;background:linear-gradient(135deg,#0a0a0a 0%,#0d110a 100%)';
   bg.innerHTML =
-    // Displaced glow layer — matching Hero component palette (#9b87f5)
+    // Displaced glow layer — cyberpunk neon green + cyan
     '<div style="position:absolute;inset:-75px;filter:url(#eth-filter) blur(10px)">' +
       // Primary purple — bottom-left (Hero radial style)
       '<div style="position:absolute;bottom:-15%;left:-8%;width:80vw;height:80vh;border-radius:50%;' +
-        'background:radial-gradient(circle,rgba(155,135,245,0.45) 0%,rgba(155,135,245,0.14) 38%,transparent 68%);' +
+        'background:radial-gradient(circle,rgba(16,185,129,0.42) 0%,rgba(16,185,129,0.12) 38%,transparent 68%);' +
         'animation:eth-drift-1 20s ease-in-out infinite alternate"></div>' +
       // Deep violet — top-right
       '<div style="position:absolute;top:-8%;right:-6%;width:65vw;height:65vh;border-radius:50%;' +
-        'background:radial-gradient(circle,rgba(109,40,217,0.35) 0%,rgba(139,92,246,0.10) 42%,transparent 68%);' +
+        'background:radial-gradient(circle,rgba(0,212,255,0.16) 0%,rgba(0,180,216,0.05) 42%,transparent 68%);' +
         'animation:eth-drift-2 24s ease-in-out infinite alternate"></div>' +
       // Soft pink accent — centre (depth layer)
       '<div style="position:absolute;top:30%;left:22%;width:50vw;height:50vh;border-radius:50%;' +
-        'background:radial-gradient(circle,rgba(236,72,153,0.08) 0%,transparent 62%);' +
+        'background:radial-gradient(circle,rgba(78,222,163,0.06) 0%,transparent 62%);' +
         'animation:eth-drift-3 28s ease-in-out infinite alternate"></div>' +
     '</div>' +
     // Edge vignette
     '<div style="position:absolute;inset:0;background:' +
-      'linear-gradient(to bottom,rgba(10,6,19,0.60) 0%,transparent 25%,transparent 72%,rgba(10,6,19,0.70) 100%),' +
-      'linear-gradient(to right,rgba(10,6,19,0.35) 0%,transparent 18%,transparent 82%,rgba(10,6,19,0.35) 100%)' +
+      'linear-gradient(to bottom,rgba(10,10,10,0.55) 0%,transparent 25%,transparent 72%,rgba(10,10,10,0.65) 100%),' +
+      'linear-gradient(to right,rgba(10,10,10,0.28) 0%,transparent 18%,transparent 82%,rgba(10,10,10,0.28) 100%)' +
     '"></div>';
   doc.body.insertBefore(bg, doc.body.firstChild);
 
@@ -235,10 +235,10 @@ iframe[title="components.html"] {
 }
 
 [data-testid="stHeader"] {
-    background-color: rgba(10,6,19,0.80) !important;
+    background-color: rgba(10,10,10,0.82) !important;
     backdrop-filter: blur(12px) !important;
     -webkit-backdrop-filter: blur(12px) !important;
-    border-bottom: 1px solid rgba(155,135,245,0.18) !important;
+    border-bottom: 1px solid rgba(16,185,129,0.18) !important;
 }
 [data-testid="stToolbar"] { display: none; }
 
@@ -262,28 +262,28 @@ section[data-testid="stSidebar"] {
 
 /* ── KPI / Metric cards ── */
 [data-testid="metric-container"] {
-    background-color: rgba(15,10,30,0.72) !important;
+    background-color: rgba(13,13,13,0.78) !important;
     backdrop-filter: blur(14px) !important;
     -webkit-backdrop-filter: blur(14px) !important;
-    border: 1px solid rgba(155,135,245,0.20) !important;
+    border: 1px solid rgba(16,185,129,0.20) !important;
     border-radius: 0px !important;
     padding: 1.2rem 1.4rem !important;
     position: relative;
     overflow: hidden;
-    box-shadow: 0 4px 24px rgba(0,0,0,0.5), inset 0 1px 0 rgba(155,135,245,0.06) !important;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.5), inset 0 1px 0 rgba(16,185,129,0.05) !important;
     transition: border-color 0.2s ease, box-shadow 0.2s ease !important;
 }
 [data-testid="metric-container"]:hover {
-    border-color: rgba(155,135,245,0.42) !important;
-    box-shadow: 0 4px 32px rgba(155,135,245,0.10), 0 4px 24px rgba(0,0,0,0.5), inset 0 1px 0 rgba(155,135,245,0.06) !important;
+    border-color: rgba(16,185,129,0.45) !important;
+    box-shadow: 0 4px 32px rgba(16,185,129,0.10), 0 4px 24px rgba(0,0,0,0.5), inset 0 1px 0 rgba(16,185,129,0.05) !important;
 }
 [data-testid="metric-container"]::before {
     content: '';
     position: absolute;
     top: 0; left: 0;
     width: 3px; height: 100%;
-    background: linear-gradient(to bottom, #9b87f5, rgba(155,135,245,0.3));
-    box-shadow: 0 0 8px rgba(155,135,245,0.5);
+    background: linear-gradient(to bottom, #10b981, rgba(16,185,129,0.3));
+    box-shadow: 0 0 8px rgba(16,185,129,0.5);
 }
 [data-testid="stMetricLabel"] > div {
     font-size: 11px !important;
@@ -494,10 +494,10 @@ hr { border-color: #2d2d2d !important; margin: 1.25rem 0 !important; }
 
 /* ── Custom components ── */
 .term-panel {
-    background-color: rgba(15,10,30,0.74);
+    background-color: rgba(13,13,13,0.78);
     backdrop-filter: blur(14px);
     -webkit-backdrop-filter: blur(14px);
-    border: 1px solid rgba(155,135,245,0.16);
+    border: 1px solid rgba(16,185,129,0.16);
     box-shadow: 0 2px 20px rgba(0,0,0,0.45);
     padding: 1.25rem 1.5rem;
     margin-bottom: 1rem;
@@ -513,10 +513,10 @@ hr { border-color: #2d2d2d !important; margin: 1.25rem 0 !important; }
     border-bottom: 1px solid #2d2d2d;
 }
 .model-card {
-    background-color: rgba(15,10,30,0.74);
+    background-color: rgba(13,13,13,0.78);
     backdrop-filter: blur(14px);
     -webkit-backdrop-filter: blur(14px);
-    border: 1px solid rgba(155,135,245,0.14);
+    border: 1px solid rgba(16,185,129,0.14);
     box-shadow: 0 2px 20px rgba(0,0,0,0.35);
     padding: 1.25rem;
     height: 100%;
@@ -652,7 +652,7 @@ hr { border-color: #2d2d2d !important; margin: 1.25rem 0 !important; }
     transform: translateX(-50%);
     width: 90%;
     height: 180%;
-    background: radial-gradient(ellipse at 50% 35%, rgba(155,135,245,0.11) 0%, transparent 65%);
+    background: radial-gradient(ellipse at 50% 35%, rgba(16,185,129,0.09) 0%, transparent 65%);
     pointer-events: none;
     z-index: -1;
 }
@@ -664,10 +664,10 @@ hr { border-color: #2d2d2d !important; margin: 1.25rem 0 !important; }
 
 /* Gap cards — glassmorphism upgrade */
 .gap-card {
-    background: rgba(15,10,30,0.65) !important;
+    background: rgba(13,13,13,0.75) !important;
     backdrop-filter: blur(12px) !important;
     -webkit-backdrop-filter: blur(12px) !important;
-    border: 1px solid rgba(45,45,65,0.7) !important;
+    border: 1px solid rgba(30,30,30,0.9) !important;
     border-left: 3px solid !important;
 }
 .gap-card.high   { border-left-color: #f87171 !important; }
@@ -676,17 +676,17 @@ hr { border-color: #2d2d2d !important; margin: 1.25rem 0 !important; }
 
 /* HHI panel — glassmorphism */
 .hhi-panel {
-    background: rgba(15,10,30,0.65) !important;
+    background: rgba(13,13,13,0.75) !important;
     backdrop-filter: blur(12px) !important;
     -webkit-backdrop-filter: blur(12px) !important;
-    border: 1px solid rgba(155,135,245,0.16) !important;
+    border: 1px solid rgba(16,185,129,0.16) !important;
 }
 
 /* Active tab — subtle purple glow */
 .stTabs [aria-selected="true"] {
-    text-shadow: 0 0 18px rgba(155,135,245,0.55) !important;
-    color: #c4b5fd !important;
-    border-bottom-color: #9b87f5 !important;
+    text-shadow: 0 0 18px rgba(16,185,129,0.60) !important;
+    color: #4edea3 !important;
+    border-bottom-color: #10b981 !important;
 }
 
 /* Pill badge (used in brand header) */
@@ -696,11 +696,11 @@ hr { border-color: #2d2d2d !important; margin: 1.25rem 0 !important; }
     gap: 6px;
     padding: 2px 12px;
     border-radius: 9999px;
-    border: 1px solid rgba(155,135,245,0.32);
-    background: rgba(155,135,245,0.08);
+    border: 1px solid rgba(16,185,129,0.32);
+    background: rgba(16,185,129,0.08);
     font-size: 9px;
     letter-spacing: 0.12em;
-    color: rgba(155,135,245,0.80);
+    color: rgba(78,222,163,0.85);
     text-transform: uppercase;
     backdrop-filter: blur(8px);
     vertical-align: middle;
@@ -709,56 +709,56 @@ hr { border-color: #2d2d2d !important; margin: 1.25rem 0 !important; }
 
 /* Expander — glassmorphism */
 [data-testid="stExpander"] {
-    background: rgba(15,10,30,0.65) !important;
-    border: 1px solid rgba(155,135,245,0.13) !important;
+    background: rgba(13,13,13,0.75) !important;
+    border: 1px solid rgba(16,185,129,0.13) !important;
 }
 
 /* DataFrames */
 [data-testid="stDataFrame"] {
-    background: rgba(15,10,30,0.65) !important;
-    border: 1px solid rgba(155,135,245,0.13) !important;
+    background: rgba(13,13,13,0.75) !important;
+    border: 1px solid rgba(16,185,129,0.13) !important;
 }
 
 /* Inputs — subtle purple focus ring */
 .stTextInput input:focus,
 .stNumberInput input:focus,
 .stTextArea textarea:focus {
-    border-color: rgba(155,135,245,0.55) !important;
-    box-shadow: 0 0 0 2px rgba(155,135,245,0.12) !important;
+    border-color: rgba(16,185,129,0.60) !important;
+    box-shadow: 0 0 0 2px rgba(16,185,129,0.12) !important;
 }
 
 /* Input bg darker */
 .stTextInput input,
 .stNumberInput input,
 .stTextArea textarea {
-    background: rgba(15,10,30,0.70) !important;
-    border-color: rgba(155,135,245,0.15) !important;
+    background: rgba(13,13,13,0.80) !important;
+    border-color: rgba(16,185,129,0.15) !important;
 }
 
 /* Select */
 [data-baseweb="select"] > div:first-child {
-    background: rgba(15,10,30,0.70) !important;
-    border-color: rgba(155,135,245,0.15) !important;
+    background: rgba(13,13,13,0.80) !important;
+    border-color: rgba(16,185,129,0.15) !important;
 }
 [data-baseweb="select"] > div:first-child:focus-within {
-    border-color: rgba(155,135,245,0.55) !important;
+    border-color: rgba(16,185,129,0.55) !important;
 }
 [data-baseweb="popover"] {
-    background: #150d27 !important;
-    border: 1px solid rgba(155,135,245,0.20) !important;
+    background: #111111 !important;
+    border: 1px solid rgba(16,185,129,0.20) !important;
 }
 
 /* Forms */
 [data-testid="stForm"] {
-    background: rgba(15,10,30,0.70) !important;
-    border: 1px solid rgba(155,135,245,0.15) !important;
+    background: rgba(13,13,13,0.80) !important;
+    border: 1px solid rgba(16,185,129,0.15) !important;
     box-shadow: 0 4px 32px rgba(0,0,0,0.4) !important;
 }
 
 /* Primary button — gradient white like SaaS template */
 .stButton > button[kind="primary"] {
     background: linear-gradient(to bottom, #ffffff, rgba(255,255,255,0.85)) !important;
-    color: #0a0613 !important;
+    color: #0a0a0a !important;
     border: none !important;
     letter-spacing: 0.04em !important;
 }
@@ -1493,7 +1493,7 @@ with col_brand:
             <span style="font-size:26px;font-weight:800;letter-spacing:-0.05em;text-transform:uppercase;line-height:1;background:linear-gradient(to bottom,#ffffff 20%,rgba(255,255,255,0.55) 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">STOCK_TERMINAL</span>
             <span class="st-pill">v2.0</span>
         </div>
-        <div style="font-size:10px;color:rgba(155,135,245,0.65);letter-spacing:0.14em;margin-top:4px;text-transform:uppercase;">Personal Portfolio Engine</div>
+        <div style="font-size:10px;color:rgba(78,222,163,0.70);letter-spacing:0.14em;margin-top:4px;text-transform:uppercase;">Personal Portfolio Engine</div>
     </div>
     """, unsafe_allow_html=True)
 with col_refresh:
