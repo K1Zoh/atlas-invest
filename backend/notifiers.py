@@ -16,26 +16,27 @@ from datetime import datetime
 import requests
 
 from backend.alerts import ALERT_PURPOSE_META
+import backend.settings as _cfg
 
 
 def telegram_configured() -> bool:
     return bool(
-        os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
-        and os.getenv("TELEGRAM_CHAT_ID", "").strip()
+        _cfg.get("telegram", "bot_token", "TELEGRAM_BOT_TOKEN")
+        and _cfg.get("telegram", "chat_id", "TELEGRAM_CHAT_ID")
     )
 
 
 def discord_configured() -> bool:
-    return bool(os.getenv("DISCORD_WEBHOOK_URL", "").strip())
+    return bool(_cfg.get("discord", "webhook_url", "DISCORD_WEBHOOK_URL"))
 
 
 # ── Telegram ───────────────────────────────────────────────────────────────────
 
 def send_telegram(triggered: list[dict]) -> tuple[bool, str]:
-    token   = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
-    chat_id = os.getenv("TELEGRAM_CHAT_ID",   "").strip()
+    token   = _cfg.get("telegram", "bot_token", "TELEGRAM_BOT_TOKEN")
+    chat_id = _cfg.get("telegram", "chat_id",   "TELEGRAM_CHAT_ID")
     if not token or not chat_id:
-        return False, "Telegram non configuré (TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID)"
+        return False, "Telegram non configuré — configure le bot dans Paramètres > Notifications"
     if not triggered:
         return True, ""
 
@@ -105,9 +106,9 @@ _DISCORD_COLORS = {
 
 
 def send_discord(triggered: list[dict]) -> tuple[bool, str]:
-    url = os.getenv("DISCORD_WEBHOOK_URL", "").strip()
+    url = _cfg.get("discord", "webhook_url", "DISCORD_WEBHOOK_URL")
     if not url:
-        return False, "Discord non configuré (DISCORD_WEBHOOK_URL)"
+        return False, "Discord non configuré — configure le webhook dans Paramètres > Notifications"
     if not triggered:
         return True, ""
 

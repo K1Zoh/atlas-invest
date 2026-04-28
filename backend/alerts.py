@@ -6,6 +6,7 @@ from datetime import datetime
 
 from backend.db import get_connection, get_position_platform
 from backend.exchanges import build_exchange_url, get_exchange_info, get_exchanges_for_asset
+import backend.settings as _cfg
 
 # Maps semantic purpose → actual price condition
 _PURPOSE_CONDITION: dict[str, str] = {
@@ -128,9 +129,9 @@ def check_alerts(prices: dict[str, float]) -> list[dict]:
 
 def _smtp_configured() -> bool:
     return all([
-        os.getenv("SMTP_HOST", "").strip(),
-        os.getenv("SMTP_USER", "").strip(),
-        os.getenv("SMTP_PASS", "").strip(),
+        _cfg.get("smtp", "host",  "SMTP_HOST"),
+        _cfg.get("smtp", "user",  "SMTP_USER"),
+        _cfg.get("smtp", "pass_", "SMTP_PASS"),
     ])
 
 
@@ -142,14 +143,14 @@ def send_alert_email(triggered: list[dict]) -> tuple[bool, str]:
     if not triggered:
         return True, ""
 
-    host = os.getenv("SMTP_HOST", "").strip()
-    port = int(os.getenv("SMTP_PORT", "587"))
-    user = os.getenv("SMTP_USER", "").strip()
-    password = os.getenv("SMTP_PASS", "").strip()
-    to = os.getenv("ALERT_EMAIL_TO", user).strip()
+    host = _cfg.get("smtp", "host",  "SMTP_HOST")
+    port = _cfg.get_int("smtp", "port", "SMTP_PORT", default=587)
+    user = _cfg.get("smtp", "user",  "SMTP_USER")
+    password = _cfg.get("smtp", "pass_", "SMTP_PASS")
+    to = _cfg.get("smtp", "to", "ALERT_EMAIL_TO") or user
 
     if not all([host, user, password, to]):
-        return False, "SMTP non configuré — vérifie SMTP_HOST, SMTP_USER, SMTP_PASS dans .env"
+        return False, "SMTP non configuré — configure l'email dans Paramètres > Notifications"
 
     rows_html = ""
     action_blocks_html = ""

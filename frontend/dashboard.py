@@ -125,27 +125,27 @@ components.html("""<!DOCTYPE html><html><body style="margin:0;padding:0;overflow
   // ── Background container ──
   var bg = doc.createElement('div');
   bg.id = 'ethereal-bg';
-  bg.style.cssText = 'position:fixed;inset:0;z-index:-1;overflow:hidden;pointer-events:none;background:#090911';
+  bg.style.cssText = 'position:fixed;inset:0;z-index:-1;overflow:hidden;pointer-events:none;background:linear-gradient(135deg,#0a0613 0%,#150d27 100%)';
   bg.innerHTML =
-    // Displaced glow layer
+    // Displaced glow layer — matching Hero component palette (#9b87f5)
     '<div style="position:absolute;inset:-75px;filter:url(#eth-filter) blur(10px)">' +
-      // Emerald — bottom-left
+      // Primary purple — bottom-left (Hero radial style)
       '<div style="position:absolute;bottom:-15%;left:-8%;width:80vw;height:80vh;border-radius:50%;' +
-        'background:radial-gradient(circle,rgba(16,185,129,0.40) 0%,rgba(16,185,129,0.12) 38%,transparent 68%);' +
+        'background:radial-gradient(circle,rgba(155,135,245,0.45) 0%,rgba(155,135,245,0.14) 38%,transparent 68%);' +
         'animation:eth-drift-1 20s ease-in-out infinite alternate"></div>' +
-      // Violet — top-right
+      // Deep violet — top-right
       '<div style="position:absolute;top:-8%;right:-6%;width:65vw;height:65vh;border-radius:50%;' +
-        'background:radial-gradient(circle,rgba(139,92,246,0.32) 0%,rgba(99,102,241,0.10) 42%,transparent 68%);' +
+        'background:radial-gradient(circle,rgba(109,40,217,0.35) 0%,rgba(139,92,246,0.10) 42%,transparent 68%);' +
         'animation:eth-drift-2 24s ease-in-out infinite alternate"></div>' +
-      // Amber accent — centre
+      // Soft pink accent — centre (depth layer)
       '<div style="position:absolute;top:30%;left:22%;width:50vw;height:50vh;border-radius:50%;' +
-        'background:radial-gradient(circle,rgba(251,191,36,0.10) 0%,transparent 62%);' +
+        'background:radial-gradient(circle,rgba(236,72,153,0.08) 0%,transparent 62%);' +
         'animation:eth-drift-3 28s ease-in-out infinite alternate"></div>' +
     '</div>' +
     // Edge vignette
     '<div style="position:absolute;inset:0;background:' +
-      'linear-gradient(to bottom,rgba(9,9,17,0.55) 0%,transparent 25%,transparent 72%,rgba(9,9,17,0.65) 100%),' +
-      'linear-gradient(to right,rgba(9,9,17,0.30) 0%,transparent 18%,transparent 82%,rgba(9,9,17,0.30) 100%)' +
+      'linear-gradient(to bottom,rgba(10,6,19,0.60) 0%,transparent 25%,transparent 72%,rgba(10,6,19,0.70) 100%),' +
+      'linear-gradient(to right,rgba(10,6,19,0.35) 0%,transparent 18%,transparent 82%,rgba(10,6,19,0.35) 100%)' +
     '"></div>';
   doc.body.insertBefore(bg, doc.body.firstChild);
 
@@ -338,10 +338,10 @@ iframe[title="components.html"] {
 }
 
 [data-testid="stHeader"] {
-    background-color: rgba(9,9,17,0.75) !important;
+    background-color: rgba(10,6,19,0.80) !important;
     backdrop-filter: blur(12px) !important;
     -webkit-backdrop-filter: blur(12px) !important;
-    border-bottom: 1px solid rgba(16,185,129,0.15) !important;
+    border-bottom: 1px solid rgba(155,135,245,0.18) !important;
 }
 [data-testid="stToolbar"] { display: none; }
 
@@ -365,28 +365,28 @@ section[data-testid="stSidebar"] {
 
 /* ── KPI / Metric cards ── */
 [data-testid="metric-container"] {
-    background-color: rgba(20,20,30,0.72) !important;
+    background-color: rgba(15,10,30,0.72) !important;
     backdrop-filter: blur(14px) !important;
     -webkit-backdrop-filter: blur(14px) !important;
-    border: 1px solid rgba(16,185,129,0.18) !important;
+    border: 1px solid rgba(155,135,245,0.20) !important;
     border-radius: 0px !important;
     padding: 1.2rem 1.4rem !important;
     position: relative;
     overflow: hidden;
-    box-shadow: 0 4px 24px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.04) !important;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.5), inset 0 1px 0 rgba(155,135,245,0.06) !important;
     transition: border-color 0.2s ease, box-shadow 0.2s ease !important;
 }
 [data-testid="metric-container"]:hover {
-    border-color: rgba(16,185,129,0.40) !important;
-    box-shadow: 0 4px 32px rgba(16,185,129,0.08), 0 4px 24px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.04) !important;
+    border-color: rgba(155,135,245,0.42) !important;
+    box-shadow: 0 4px 32px rgba(155,135,245,0.10), 0 4px 24px rgba(0,0,0,0.5), inset 0 1px 0 rgba(155,135,245,0.06) !important;
 }
 [data-testid="metric-container"]::before {
     content: '';
     position: absolute;
     top: 0; left: 0;
     width: 3px; height: 100%;
-    background: linear-gradient(to bottom, #10b981, rgba(16,185,129,0.3));
-    box-shadow: 0 0 8px rgba(16,185,129,0.5);
+    background: linear-gradient(to bottom, #9b87f5, rgba(155,135,245,0.3));
+    box-shadow: 0 0 8px rgba(155,135,245,0.5);
 }
 [data-testid="stMetricLabel"] > div {
     font-size: 11px !important;
@@ -597,11 +597,11 @@ hr { border-color: #2d2d2d !important; margin: 1.25rem 0 !important; }
 
 /* ── Custom components ── */
 .term-panel {
-    background-color: rgba(20,20,30,0.74);
+    background-color: rgba(15,10,30,0.74);
     backdrop-filter: blur(14px);
     -webkit-backdrop-filter: blur(14px);
-    border: 1px solid rgba(16,185,129,0.14);
-    box-shadow: 0 2px 20px rgba(0,0,0,0.35);
+    border: 1px solid rgba(155,135,245,0.16);
+    box-shadow: 0 2px 20px rgba(0,0,0,0.45);
     padding: 1.25rem 1.5rem;
     margin-bottom: 1rem;
 }
@@ -616,10 +616,10 @@ hr { border-color: #2d2d2d !important; margin: 1.25rem 0 !important; }
     border-bottom: 1px solid #2d2d2d;
 }
 .model-card {
-    background-color: rgba(20,20,30,0.74);
+    background-color: rgba(15,10,30,0.74);
     backdrop-filter: blur(14px);
     -webkit-backdrop-filter: blur(14px);
-    border: 1px solid rgba(45,45,65,0.7);
+    border: 1px solid rgba(155,135,245,0.14);
     box-shadow: 0 2px 20px rgba(0,0,0,0.35);
     padding: 1.25rem;
     height: 100%;
@@ -1510,13 +1510,14 @@ if st.session_state.get("alert_banners"):
         unsafe_allow_html=True,
     )
 
-tab_dashboard, tab_stocks, tab_crypto, tab_alerts, tab_watchlist, tab_fiscal = st.tabs([
+tab_dashboard, tab_stocks, tab_crypto, tab_alerts, tab_watchlist, tab_fiscal, tab_settings = st.tabs([
     "▣  Dashboard",
     "◈  Actions / ETF",
     "₿  Crypto",
     "◉  Alertes",
     "◎  Watchlist",
     "📊  Fiscal",
+    "⚙  Paramètres",
 ])
 
 
@@ -5060,3 +5061,155 @@ with tab_fiscal:
             "Les moins-values d'une catégorie (actions ou crypto) ne compensent pas les plus-values "
             "de l'autre catégorie selon la réglementation française actuelle."
         )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 7 — ⚙ Paramètres
+# ══════════════════════════════════════════════════════════════════════════════
+
+with tab_settings:
+    from backend import settings as _settings
+    from backend.notifiers import send_telegram_test, send_discord_test
+
+    st.markdown("### ⚙ Paramètres — Notifications")
+    st.caption(
+        "Configure tes canaux d'alerte directement ici. "
+        "Les valeurs sont sauvegardées dans `data/settings.json` — "
+        "aucune modification du fichier `.env` n'est nécessaire."
+    )
+
+    # ── Section Email (SMTP) ───────────────────────────────────────────────────
+    st.divider()
+    st.subheader("📧 Email (SMTP)")
+
+    _s_email = _settings.get_section("smtp", {
+        "host": "smtp.gmail.com", "port": 587,
+        "user": "", "pass_": "", "to": "",
+    })
+
+    with st.form("form_smtp", clear_on_submit=False):
+        _sc1, _sc2 = st.columns([3, 1])
+        _smtp_host = _sc1.text_input("Serveur SMTP", value=_s_email.get("host", "smtp.gmail.com"))
+        _smtp_port = _sc2.number_input("Port", value=int(_s_email.get("port", 587)), min_value=1, max_value=65535, step=1)
+        _smtp_user = st.text_input("Email expéditeur", value=_s_email.get("user", ""), placeholder="ton.email@gmail.com")
+        _smtp_pass = st.text_input("Mot de passe d'application", value=_s_email.get("pass_", ""), type="password",
+                                   help="Gmail : Compte Google → Sécurité → Mots de passe d'application (2FA requis)")
+        _smtp_to   = st.text_input("Email destinataire des alertes", value=_s_email.get("to", ""),
+                                   placeholder="laisser vide = même que l'expéditeur")
+
+        _sm_col1, _sm_col2 = st.columns([1, 3])
+        _smtp_save = _sm_col1.form_submit_button("💾 Sauvegarder", type="primary")
+        if _smtp_save:
+            _settings.save_section("smtp", {
+                "host": _smtp_host, "port": int(_smtp_port),
+                "user": _smtp_user, "pass_": _smtp_pass,
+                "to":   _smtp_to or _smtp_user,
+            })
+            st.success("✓ Paramètres email sauvegardés.")
+
+    # Test email (outside form so it can be triggered independently)
+    if _settings.smtp_configured():
+        if st.button("📤 Envoyer un email de test", key="test_smtp"):
+            import smtplib
+            from email.mime.text import MIMEText
+            _th = _settings.get("smtp", "host",  "SMTP_HOST")
+            _tp = _settings.get_int("smtp", "port", "SMTP_PORT", default=587)
+            _tu = _settings.get("smtp", "user",  "SMTP_USER")
+            _tpw = _settings.get("smtp", "pass_", "SMTP_PASS")
+            _tto = _settings.get("smtp", "to",   "ALERT_EMAIL_TO") or _tu
+            try:
+                _msg = MIMEText("✅ STOCK_TERMINAL — Notifications email configurées avec succès !")
+                _msg["Subject"] = "STOCK_TERMINAL — Test notification"
+                _msg["From"]    = _tu
+                _msg["To"]      = _tto
+                with smtplib.SMTP(_th, _tp) as _srv:
+                    _srv.starttls()
+                    _srv.login(_tu, _tpw)
+                    _srv.sendmail(_tu, [_tto], _msg.as_string())
+                st.success(f"✓ Email de test envoyé à {_tto}")
+            except Exception as _e:
+                st.error(f"Erreur : {_e}")
+    else:
+        st.info("Remplis et sauvegarde les paramètres SMTP pour pouvoir tester.")
+
+    # ── Section Telegram ──────────────────────────────────────────────────────
+    st.divider()
+    st.subheader("✈ Telegram")
+    st.caption(
+        "1. Crée un bot via [@BotFather](https://t.me/BotFather) → `/newbot` → copie le token  \n"
+        "2. Envoie `/start` à ton bot, puis récupère ton `chat_id` : "
+        "`https://api.telegram.org/bot<TOKEN>/getUpdates`"
+    )
+
+    _s_tg = _settings.get_section("telegram", {"bot_token": "", "chat_id": ""})
+
+    with st.form("form_telegram", clear_on_submit=False):
+        _tg_token   = st.text_input("Bot Token", value=_s_tg.get("bot_token", ""),
+                                    placeholder="123456789:ABCdef...", type="password")
+        _tg_chat_id = st.text_input("Chat ID", value=_s_tg.get("chat_id", ""),
+                                    placeholder="987654321")
+        _tg_save = st.form_submit_button("💾 Sauvegarder", type="primary")
+        if _tg_save:
+            _settings.save_section("telegram", {"bot_token": _tg_token, "chat_id": _tg_chat_id})
+            st.success("✓ Paramètres Telegram sauvegardés.")
+
+    if _settings.telegram_configured():
+        if st.button("📤 Envoyer un message de test", key="test_telegram"):
+            _tok = _settings.get("telegram", "bot_token", "TELEGRAM_BOT_TOKEN")
+            _cid = _settings.get("telegram", "chat_id",   "TELEGRAM_CHAT_ID")
+            _ok, _err = send_telegram_test(_tok, _cid)
+            if _ok:
+                st.success("✓ Message Telegram envoyé avec succès !")
+            else:
+                st.error(f"Erreur : {_err}")
+    else:
+        st.info("Remplis et sauvegarde le token et le chat_id pour pouvoir tester.")
+
+    # ── Section Discord ───────────────────────────────────────────────────────
+    st.divider()
+    st.subheader("💬 Discord")
+    st.caption(
+        "Dans ton serveur Discord : **Paramètres du salon** → **Intégrations** → "
+        "**Webhooks** → **Nouveau webhook** → copie l'URL."
+    )
+
+    _s_dc = _settings.get_section("discord", {"webhook_url": ""})
+
+    with st.form("form_discord", clear_on_submit=False):
+        _dc_url = st.text_input("Webhook URL", value=_s_dc.get("webhook_url", ""),
+                                placeholder="https://discord.com/api/webhooks/xxx/yyy",
+                                type="password")
+        _dc_save = st.form_submit_button("💾 Sauvegarder", type="primary")
+        if _dc_save:
+            _settings.save_section("discord", {"webhook_url": _dc_url})
+            st.success("✓ Webhook Discord sauvegardé.")
+
+    if _settings.discord_configured():
+        if st.button("📤 Envoyer un message de test", key="test_discord"):
+            _ok, _err = send_discord_test(_settings.get("discord", "webhook_url", "DISCORD_WEBHOOK_URL"))
+            if _ok:
+                st.success("✓ Message Discord envoyé avec succès !")
+            else:
+                st.error(f"Erreur : {_err}")
+    else:
+        st.info("Remplis et sauvegarde le webhook URL pour pouvoir tester.")
+
+    # ── Statut récapitulatif ──────────────────────────────────────────────────
+    st.divider()
+    st.subheader("Statut des canaux")
+    _nc1, _nc2, _nc3 = st.columns(3)
+    _nc1.metric(
+        "📧 Email",
+        "✓ Configuré" if _settings.smtp_configured() else "Non configuré",
+        delta_color="off",
+    )
+    _nc2.metric(
+        "✈ Telegram",
+        "✓ Configuré" if _settings.telegram_configured() else "Non configuré",
+        delta_color="off",
+    )
+    _nc3.metric(
+        "💬 Discord",
+        "✓ Configuré" if _settings.discord_configured() else "Non configuré",
+        delta_color="off",
+    )
