@@ -63,6 +63,8 @@ from backend.db import get_position_platform
 from backend.analyzers.prompt import build_analysis_prompt
 from backend.analyzers.crypto_prompt import build_crypto_analysis_prompt
 from backend.analyzers.runner import run_analysis
+from backend.i18n import tr
+import backend.settings as _app_settings
 
 # ── Config ─────────────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -74,71 +76,86 @@ st.set_page_config(
 
 init_db()
 
+# ── UI preferences (language + theme) ─────────────────────────────────────────
+_lang  = _app_settings.get("ui", "language") or "fr"
+_theme = _app_settings.get("ui", "theme") or "dark"
+st.session_state["_lang"]  = _lang
+st.session_state["_theme"] = _theme
+
 # ── Dot-grid background ─────────────────────────────────────────────────────────
-components.html("""<!DOCTYPE html><html><body style="margin:0;padding:0;overflow:hidden;background:transparent">
+_dot_html = (
+    """<!DOCTYPE html><html><body style="margin:0;padding:0;overflow:hidden;background:transparent">
 <script>
 (function() {
   var doc = window.parent.document;
-  if (doc.getElementById('dot-grid-bg')) return;
+  var theme = '__THEME__';
+  var dark  = theme !== 'light';
 
-  var style = doc.createElement('style');
-  style.id = 'dot-grid-styles';
-  style.textContent =
-    '#dot-grid-bg{' +
-      'position:fixed;inset:0;z-index:-1;pointer-events:none;' +
-      'background-color:#0a0a0a;' +
-      'background-image:radial-gradient(circle,rgba(16,185,129,0.18) 1px,transparent 1px);' +
-      'background-size:28px 28px;' +
-    '}' +
-    '#dot-grid-vignette{' +
-      'position:fixed;inset:0;z-index:-1;pointer-events:none;' +
-      'background:' +
-        'radial-gradient(ellipse at 50% 50%,transparent 40%,rgba(10,10,10,0.82) 100%),' +
-        'linear-gradient(to bottom,rgba(10,10,10,0.70) 0%,transparent 18%,transparent 80%,rgba(10,10,10,0.80) 100%)' +
-      ';' +
-    '}';
-  doc.head.appendChild(style);
+  var dotColor = dark ? 'rgba(16,185,129,0.18)' : 'rgba(15,23,42,0.09)';
+  var bgColor  = dark ? '#0a0a0a'               : '#f4f5f4';
+  var vigEdge  = dark ? '10,10,10'              : '244,245,244';
+  var vigBg    = 'radial-gradient(ellipse at 50% 50%,transparent 40%,rgba(' + vigEdge + ',0.82) 100%),'
+               + 'linear-gradient(to bottom,rgba(' + vigEdge + ',0.70) 0%,transparent 18%,transparent 80%,rgba(' + vigEdge + ',0.80) 100%)';
 
-  var bg = doc.createElement('div');
-  bg.id = 'dot-grid-bg';
-  doc.body.insertBefore(bg, doc.body.firstChild);
+  var st = doc.getElementById('dot-grid-styles');
+  if (!st) { st = doc.createElement('style'); st.id = 'dot-grid-styles'; doc.head.appendChild(st); }
+  st.textContent =
+    '#dot-grid-bg{position:fixed;inset:0;z-index:-1;pointer-events:none;'
+    + 'background-color:' + bgColor + ';'
+    + 'background-image:radial-gradient(circle,' + dotColor + ' 1px,transparent 1px);'
+    + 'background-size:28px 28px;}'
+    + '#dot-grid-vignette{position:fixed;inset:0;z-index:-1;pointer-events:none;background:' + vigBg + ';}';
 
-  var vignette = doc.createElement('div');
-  vignette.id = 'dot-grid-vignette';
-  doc.body.insertBefore(vignette, doc.body.firstChild);
+  if (!doc.getElementById('dot-grid-bg')) {
+    var bg = doc.createElement('div'); bg.id = 'dot-grid-bg';
+    doc.body.insertBefore(bg, doc.body.firstChild);
+    var vg = doc.createElement('div'); vg.id = 'dot-grid-vignette';
+    doc.body.insertBefore(vg, doc.body.firstChild);
+  }
 
-  // ── Scroll-aware floating header ──
-  window.parent.addEventListener('scroll', function() {
-    var header = doc.querySelector('[data-testid="stHeader"]');
-    if (!header) return;
-    if (window.parent.scrollY > 50) {
-      header.classList.add('st-header-scrolled');
-    } else {
-      header.classList.remove('st-header-scrolled');
-    }
-  }, { passive: true });
+  if (!doc._stScrollBound) {
+    doc._stScrollBound = true;
+    window.parent.addEventListener('scroll', function() {
+      var header = doc.querySelector('[data-testid="stHeader"]');
+      if (!header) return;
+      if (window.parent.scrollY > 50) { header.classList.add('st-header-scrolled'); }
+      else { header.classList.remove('st-header-scrolled'); }
+    }, { passive: true });
+  }
 })();
 </script>
-</body></html>""", height=1)
+</body></html>"""
+    .replace("__THEME__", _theme)
+)
+components.html(_dot_html, height=1)
 
 
 # ── Design system ───────────────────────────────────────────────────────────────
-_C_GAIN    = "#10b981"   # emerald-500
 _C_LOSS    = "#f87171"   # red-400
 _C_WARN    = "#f59e0b"   # amber-500
 _C_ACCENT  = "#ffb95f"   # secondary amber
 _C_PRIMARY = "#4edea3"   # primary-fixed
 _C_CRYPTO  = "#f7931a"   # bitcoin orange
-_BG        = "#121212"
-_SURFACE   = "#1a1a1a"
-_BORDER    = "#2d2d2d"
-_TEXT      = "#e1e2e8"
-_MUTED     = "#94a3b8"
+
+if _theme == "light":
+    _C_GAIN  = "#059669"   # darker emerald for light bg
+    _BG      = "#f4f5f4"
+    _SURFACE = "#ffffff"
+    _BORDER  = "#e2e8f0"
+    _TEXT    = "#0f172a"
+    _MUTED   = "#64748b"
+else:
+    _C_GAIN  = "#10b981"   # emerald-500
+    _BG      = "#121212"
+    _SURFACE = "#1a1a1a"
+    _BORDER  = "#2d2d2d"
+    _TEXT    = "#e1e2e8"
+    _MUTED   = "#94a3b8"
 
 _CHART = dict(
-    template="plotly_dark",
+    template="plotly_white" if _theme == "light" else "plotly_dark",
     paper_bgcolor="rgba(0,0,0,0)",
-    plot_bgcolor="rgba(18,18,18,0)",
+    plot_bgcolor="rgba(0,0,0,0)",
     margin=dict(l=0, r=0, t=28, b=0),
     font=dict(family="Space Grotesk, system-ui, sans-serif", size=12, color=_TEXT),
 )
@@ -746,6 +763,123 @@ hr { border-color: #2d2d2d !important; margin: 1.25rem 0 !important; }
 }
 </style>
 """, unsafe_allow_html=True)
+
+# ── Light theme overrides ────────────────────────────────────────────────────────
+if _theme == "light":
+    st.markdown("""<style>
+html, body,
+[data-testid="stApp"],
+[data-testid="stAppViewContainer"],
+[data-testid="stAppViewContainer"] > .main,
+[data-testid="stMain"], .main {
+    background-color: #f4f5f4 !important;
+    background: #f4f5f4 !important;
+    color: #0f172a !important;
+}
+[data-testid="stAppViewContainer"] { color: #0f172a !important; }
+[data-testid="stHeader"] {
+    background-color: rgba(244,245,244,0.94) !important;
+    border-bottom: 1px solid rgba(5,150,105,0.18) !important;
+}
+[data-testid="stHeader"].st-header-scrolled {
+    background-color: rgba(244,245,244,0.96) !important;
+    border: 1px solid rgba(200,210,200,0.90) !important;
+    border-bottom: 1px solid rgba(200,210,200,0.90) !important;
+}
+.stHeading h1 { color: #059669 !important; }
+.stHeading h2 { color: #334155 !important; }
+.stHeading h3 { color: #1e293b !important; border-bottom-color: #e2e8f0 !important; }
+[data-testid="metric-container"] {
+    background-color: rgba(255,255,255,0.96) !important;
+    border: 1px solid rgba(5,150,105,0.16) !important;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.06), inset 0 1px 0 rgba(5,150,105,0.04) !important;
+}
+[data-testid="metric-container"]:hover {
+    border-color: rgba(5,150,105,0.38) !important;
+    box-shadow: 0 2px 20px rgba(5,150,105,0.10), 0 2px 12px rgba(0,0,0,0.06) !important;
+}
+[data-testid="metric-container"]::before {
+    background: linear-gradient(to bottom, #059669, rgba(5,150,105,0.3)) !important;
+    box-shadow: 0 0 6px rgba(5,150,105,0.4) !important;
+}
+[data-testid="stMetricLabel"] > div { color: #64748b !important; }
+[data-testid="stMetricValue"] { color: #0f172a !important; }
+.stTabs [data-baseweb="tab-list"] {
+    background: rgba(255,255,255,0.88) !important;
+    border: 1px solid rgba(200,200,200,0.85) !important;
+    box-shadow: 0 2px 16px rgba(0,0,0,0.07) !important;
+}
+.stTabs [data-baseweb="tab"] { color: rgba(100,116,139,0.85) !important; }
+.stTabs [aria-selected="true"] {
+    background: rgba(5,150,105,0.10) !important;
+    border-color: rgba(5,150,105,0.28) !important;
+    color: #059669 !important;
+    text-shadow: 0 0 14px rgba(5,150,105,0.35) !important;
+}
+.stTabs [data-baseweb="tab"]:hover:not([aria-selected="true"]) {
+    color: #1e293b !important;
+    background: rgba(0,0,0,0.04) !important;
+}
+.stButton > button:not([kind="primary"]) {
+    background-color: rgba(255,255,255,0.92) !important;
+    color: #1e293b !important;
+    border: 1px solid #d1d5db !important;
+}
+.stButton > button:not([kind="primary"]):hover {
+    border-color: #059669 !important;
+    color: #059669 !important;
+    background-color: rgba(5,150,105,0.05) !important;
+}
+.stButton > button[kind="primary"] {
+    background: linear-gradient(to bottom, #059669, #047857) !important;
+    color: #ffffff !important;
+}
+.stButton > button[kind="primary"]:hover {
+    background: linear-gradient(to bottom, #10b981, #059669) !important;
+}
+hr { border-color: #e2e8f0 !important; }
+[data-testid="stExpander"] {
+    background: rgba(255,255,255,0.92) !important;
+    border: 1px solid rgba(5,150,105,0.12) !important;
+}
+[data-testid="stDataFrame"] {
+    background: rgba(255,255,255,0.92) !important;
+    border: 1px solid #e2e8f0 !important;
+}
+.stTextInput input, .stNumberInput input, .stTextArea textarea {
+    background: rgba(255,255,255,0.96) !important;
+    border-color: #d1d5db !important;
+    color: #0f172a !important;
+}
+.stTextInput input:focus, .stNumberInput input:focus, .stTextArea textarea:focus {
+    border-color: rgba(5,150,105,0.55) !important;
+    box-shadow: 0 0 0 2px rgba(5,150,105,0.10) !important;
+}
+[data-baseweb="select"] > div:first-child {
+    background: rgba(255,255,255,0.96) !important;
+    border-color: #d1d5db !important;
+}
+[data-baseweb="popover"] { background: #ffffff !important; border: 1px solid #e2e8f0 !important; }
+[data-testid="stForm"] {
+    background: rgba(255,255,255,0.92) !important;
+    border: 1px solid #e2e8f0 !important;
+    box-shadow: 0 2px 16px rgba(0,0,0,0.05) !important;
+}
+section[data-testid="stSidebar"] {
+    background-color: rgba(248,250,248,0.96) !important;
+    border-right: 1px solid #e2e8f0 !important;
+}
+.st-pill {
+    border-color: rgba(5,150,105,0.32) !important;
+    background: rgba(5,150,105,0.08) !important;
+    color: rgba(5,150,105,0.85) !important;
+}
+[data-testid="stPlotlyChart"]::before {
+    background: radial-gradient(ellipse at 50% 0%, rgba(5,150,105,0.05) 0%, transparent 70%) !important;
+}
+::-webkit-scrollbar-track { background: #f0f0f0 !important; }
+::-webkit-scrollbar-thumb { background: #c8d0c8 !important; }
+</style>""", unsafe_allow_html=True)
 
 # ── Session state ───────────────────────────────────────────────────────────────
 for key, default in [
@@ -1465,19 +1599,19 @@ def _maybe_open_fiche(ticker: str, asset_class: str, df: "pd.DataFrame", prices:
 # ── Brand Header ────────────────────────────────────────────────────────────────
 col_brand, col_refresh = st.columns([8, 2])
 with col_brand:
-    st.markdown("""
+    st.markdown(f"""
     <div style="padding:0.5rem 0 1rem;">
         <div style="display:flex;align-items:center;gap:10px;">
             <span style="font-size:26px;font-weight:800;letter-spacing:-0.05em;text-transform:uppercase;line-height:1;background:linear-gradient(to bottom,#ffffff 20%,rgba(255,255,255,0.55) 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">STOCK_TERMINAL</span>
             <span class="st-pill">v2.0</span>
         </div>
-        <div style="font-size:10px;color:rgba(78,222,163,0.70);letter-spacing:0.14em;margin-top:4px;text-transform:uppercase;">Personal Portfolio Engine</div>
+        <div style="font-size:10px;color:rgba(78,222,163,0.70);letter-spacing:0.14em;margin-top:4px;text-transform:uppercase;">{tr('brand.subtitle')}</div>
     </div>
     """, unsafe_allow_html=True)
 with col_refresh:
     st.write("")
     st.write("")
-    if st.button("↻ ACTUALISER", use_container_width=True):
+    if st.button(tr("btn.refresh"), use_container_width=True):
         st.rerun()
 
 # Load data once per script run — no caching needed, st.rerun() guarantees fresh data
@@ -1549,13 +1683,13 @@ if st.session_state.get("alert_banners"):
     )
 
 tab_dashboard, tab_stocks, tab_crypto, tab_alerts, tab_watchlist, tab_fiscal, tab_settings = st.tabs([
-    "▣  Dashboard",
-    "◈  Actions / ETF",
-    "₿  Crypto",
-    "◉  Alertes",
-    "◎  Watchlist",
-    "📊  Fiscal",
-    "⚙  Paramètres",
+    tr("tab.dashboard"),
+    tr("tab.stocks"),
+    tr("tab.crypto"),
+    tr("tab.alerts"),
+    tr("tab.watchlist"),
+    tr("tab.fiscal"),
+    tr("tab.settings"),
 ])
 
 
@@ -1602,7 +1736,7 @@ with tab_dashboard:
 
         # ── Évolution du portefeuille ─────────────────────────────────────────
         st.divider()
-        st.subheader("Évolution du portefeuille")
+        st.subheader(tr("dash.portfolio_evolution"))
         _tl_opts = {"6 mois": ("6mo", 180), "1 an": ("1y", 365), "2 ans": ("2y", 730)}
         _tl_label = st.radio("Période", list(_tl_opts.keys()), index=1,
                              horizontal=True, key="tl_period")
@@ -1666,7 +1800,7 @@ with tab_dashboard:
         # ── Benchmark comparison ──────────────────────────────────────────────
         if not _tl_df.empty:
             st.divider()
-            st.subheader("Comparaison benchmark")
+            st.subheader(tr("dash.benchmark"))
             _bm_col1, _bm_col2 = st.columns([5, 3])
             with _bm_col1:
                 _bm_c1, _bm_c2, _bm_c3 = st.columns(3)
@@ -1745,7 +1879,7 @@ with tab_dashboard:
         # ── Répartition Bourse / Crypto ──────────────────────────────────────
         if has_stocks and has_crypto_ov and glob_value > 0:
             st.divider()
-            st.subheader("Répartition globale des actifs")
+            st.subheader(tr("dash.global_alloc"))
             ba, bb = st.columns([3, 2])
             with ba:
                 stk_pct = s_stk["total_value"] / glob_value * 100
@@ -1778,7 +1912,7 @@ with tab_dashboard:
 
         if has_stocks:
             st.divider()
-            st.subheader("Actions / ETF — Répartition")
+            st.subheader(tr("dash.stock_alloc"))
             alerts_d = compute_concentration_alerts(df)
             if alerts_d:
                 for lvl, msg in alerts_d:
@@ -1806,7 +1940,7 @@ with tab_dashboard:
 
         if has_crypto_ov:
             st.divider()
-            st.subheader("Crypto — Répartition")
+            st.subheader(tr("dash.crypto_alloc"))
             alerts_cd = compute_crypto_concentration_alerts(df_c_ov)
             if alerts_cd:
                 for lvl, msg in alerts_cd:
@@ -1835,7 +1969,7 @@ with tab_dashboard:
         # ── Vue géographique ──────────────────────────────────────────────────
         if has_any:
             st.divider()
-            st.subheader("Exposition géographique")
+            st.subheader(tr("dash.geo"))
 
             crypto_val_for_geo = s_cry["total_value"] if has_crypto_ov else 0.0
             df_geo = compute_geographic_allocation(
@@ -1929,7 +2063,7 @@ with tab_dashboard:
     # ── Rebalancing tool ──────────────────────────────────────────────────────
     if glob_value > 0:
         st.divider()
-        st.subheader("⚖️ Rééquilibrage du portefeuille")
+        st.subheader(tr("dash.rebalance"))
         st.caption("Définis tes cibles d'allocation et calcule les ordres buy/sell nécessaires.")
 
         # Build unified position list (stocks + crypto with valid prices)
@@ -2164,7 +2298,7 @@ with tab_stocks:
             df_v = df.dropna(subset=["Valeur (€)"])
 
             with c1:
-                st.subheader("Répartition par valeur")
+                st.subheader(tr("stocks.alloc_value"))
                 if not df_v.empty:
                     total_v = df_v["Valeur (€)"].sum()
                     df_bar = df_v.assign(pct=df_v["Valeur (€)"] / total_v * 100).sort_values("pct", ascending=True)
@@ -2183,7 +2317,7 @@ with tab_stocks:
                     st.plotly_chart(fig, use_container_width=True)
 
             with c2:
-                st.subheader("Répartition par secteur")
+                st.subheader(tr("stocks.alloc_sector"))
                 df_sec = compute_sector_allocation(df_v) if not df_v.empty else pd.DataFrame()
                 if not df_sec.empty:
                     total_s = df_sec["Valeur (€)"].sum()
@@ -2232,7 +2366,7 @@ with tab_stocks:
             st.divider()
 
             # ── Performance bar ────────────────────────────────────────────────
-            st.subheader("Performance par position")
+            st.subheader(tr("stocks.performance"))
             df_perf = df.dropna(subset=["Perf (%)"]).sort_values("Perf (%)")
             if not df_perf.empty:
                 _stk_perf_sel = st.multiselect(
@@ -2265,7 +2399,7 @@ with tab_stocks:
             st.divider()
 
             # ── Historical chart + benchmark ───────────────────────────────────
-            st.subheader("Évolution normalisée — base 100")
+            st.subheader(tr("common.normalized"))
             p_options = {"6 mois": "6mo", "1 an": "1y", "2 ans": "2y", "5 ans": "5y"}
             hc1, hc2 = st.columns([3, 1])
             with hc1:
@@ -2342,7 +2476,7 @@ with tab_stocks:
                 st.caption("Historique indisponible — certains tickers sont des codes broker non-standard.")
 
             st.divider()
-            st.subheader("Détail des positions")
+            st.subheader(tr("common.positions"))
             st.caption("Cliquez sur une ligne pour ouvrir la fiche de l'actif.")
             ev_stk_tbl = st.dataframe(
                 _fmt_df(df), width="stretch", hide_index=True,
@@ -2386,7 +2520,7 @@ with tab_stocks:
 
         st.divider()
 
-        st.subheader("Enregistrer un achat")
+        st.subheader(tr("stocks.buy"))
         st.caption("Recherche par nom ou ticker — ex : nvidia, amundi sp500, ishares cyber")
 
         s_col, b_col = st.columns([5, 1])
@@ -2494,7 +2628,7 @@ with tab_stocks:
             st.caption("Recherche un titre ci-dessus pour l'ajouter.")
 
         st.divider()
-        st.subheader("Enregistrer une vente")
+        st.subheader(tr("stocks.sell"))
         _sell_positions = get_positions(asset_class="stock")
         if not _sell_positions:
             st.caption("Aucune position à vendre.")
@@ -2587,7 +2721,7 @@ with tab_stocks:
                             st.error(f"Erreur : {_e}")
 
         st.divider()
-        st.subheader("Mes positions")
+        st.subheader(tr("stocks.my_positions"))
 
         positions = get_positions(asset_class="stock")
         if not positions:
@@ -2757,7 +2891,7 @@ with tab_stocks:
 
     # ══ STOCKS — Simulateur DCA ══════════════════════════════════════════════
     with sub_stk_sim:
-        st.subheader("Simulateur DCA")
+        st.subheader(tr("stocks.dca"))
         st.caption(
             "Compare une stratégie d'investissement programmé (DCA) — un montant fixe chaque mois — "
             "contre un achat unique (Lump Sum) pour n'importe quel actif."
@@ -2879,7 +3013,7 @@ with tab_stocks:
             per_model = _get_latest_per_model(all_suggestions)
 
             # ── 2. Competition — Model cards + graphiques ───────────────────────────
-            st.subheader("IA Engine Competition")
+            st.subheader(tr("common.ai_engine"))
 
             if sb_df.empty:
                 st.caption("Lance une première analyse pour alimenter la compétition.")
@@ -2989,7 +3123,7 @@ with tab_stocks:
             st.divider()
 
             # ── 3. Recommandations consolidées ─────────────────────────────────────
-            st.subheader("Recommandations consolidées")
+            st.subheader(tr("common.recommendations"))
 
             gaps = compute_investment_gaps(df_ai)
             if gaps:
@@ -3132,7 +3266,7 @@ with tab_stocks:
             st.divider()
 
             # ── 4. Lancer une analyse automatique ──────────────────────────────────
-            st.subheader("Lancer une analyse automatique")
+            st.subheader(tr("common.run_analysis"))
 
             with st.expander("Voir le prompt envoyé aux IA", expanded=False):
                 st.code(prompt_text, language=None)
@@ -3247,7 +3381,7 @@ with tab_stocks:
             st.divider()
 
             # ── 6. Historique avec scoring ─────────────────────────────────────────
-            st.subheader("Historique des analyses")
+            st.subheader(tr("stocks.analysis_history"))
             suggestions = get_suggestions(limit=50)
 
             if not suggestions:
@@ -3290,7 +3424,7 @@ with tab_stocks:
 
     # ══ STOCKS — Dividendes ══════════════════════════════════════════════════
     with sub_stk_div:
-        st.markdown("### 💰 Suivi des dividendes")
+        st.markdown(f"### {tr('stocks.dividends')}")
         st.caption("Enregistre tes dividendes reçus et consulte les données de rendement de tes positions.")
 
         _stk_positions = get_positions(asset_class="stock")
@@ -3312,7 +3446,7 @@ with tab_stocks:
 
         # ── Auto-scan : dividend info for each stock position ─────────────────
         if _stk_positions:
-            st.subheader("Rendement des positions")
+            st.subheader(tr("stocks.dividend_yield"))
             st.caption("Données automatiques via Yahoo Finance — actualisées à chaque session.")
 
             _dv_rows = []
@@ -3350,7 +3484,7 @@ with tab_stocks:
         st.divider()
 
         # ── Record a dividend ─────────────────────────────────────────────────
-        st.subheader("Enregistrer un dividende reçu")
+        st.subheader(tr("stocks.add_dividend"))
         with st.form("div_add_form", clear_on_submit=True):
             _df1, _df2, _df3 = st.columns([2, 2, 2])
 
@@ -3404,7 +3538,7 @@ with tab_stocks:
         # ── Dividend history ──────────────────────────────────────────────────
         if _all_divs:
             st.divider()
-            st.subheader("Historique des dividendes reçus")
+            st.subheader(tr("stocks.dividend_history"))
 
             # Bar chart — monthly
             _dv_hist_df = pd.DataFrame(_all_divs)
@@ -3486,7 +3620,7 @@ with tab_crypto:
             df_cv = df_c.dropna(subset=["Valeur (€)"])
 
             with cc1:
-                st.subheader("Répartition par crypto")
+                st.subheader(tr("crypto.alloc"))
                 if not df_cv.empty:
                     tot_cv = df_cv["Valeur (€)"].sum()
                     df_cbar = df_cv.assign(pct=df_cv["Valeur (€)"] / tot_cv * 100).sort_values("pct", ascending=True)
@@ -3508,7 +3642,7 @@ with tab_crypto:
                     st.plotly_chart(fig_ca, use_container_width=True)
 
             with cc2:
-                st.subheader("Répartition par catégorie")
+                st.subheader(tr("crypto.alloc_cat"))
                 df_ccat = compute_crypto_sector_allocation(df_cv) if not df_cv.empty else pd.DataFrame()
                 if not df_ccat.empty:
                     tot_cat = df_ccat["Valeur (€)"].sum()
@@ -3536,7 +3670,7 @@ with tab_crypto:
             st.divider()
 
             # ── Performance par crypto ─────────────────────────────────────────
-            st.subheader("Performance par crypto")
+            st.subheader(tr("crypto.performance"))
             df_cperf = df_c.dropna(subset=["Perf (%)"]).copy()
             # Exclure les positions avec moins de 1€ investi (perf% non significative)
             df_cperf = df_cperf[df_cperf["Investi (€)"] >= 1.0].sort_values("Perf (%)")
@@ -3653,7 +3787,7 @@ with tab_crypto:
                     _render_exchange_links(_qbc_tk, "crypto", compact=True)
 
             st.divider()
-            st.subheader("Fiche détail — analyse d'une crypto")
+            st.subheader(tr("crypto.detail_card"))
             ticker_opts_c = ["— Sélectionner une crypto —"] + sorted(df_c["Ticker"].tolist())
             sel_cry = st.selectbox("", ticker_opts_c, key="fiche_cry_sel",
                                    label_visibility="collapsed")
@@ -3664,7 +3798,7 @@ with tab_crypto:
     # CRYPTO — Gérer mes positions
     # ══════════════════════════════════════════════════════════════════════════
     with sub_manage:
-        st.subheader("Ajouter une crypto")
+        st.subheader(tr("crypto.add"))
         st.caption("Recherche par nom ou symbole — ex : bitcoin, ethereum, solana, chainlink")
 
         cs_col, cb_col = st.columns([5, 1])
@@ -3771,7 +3905,7 @@ with tab_crypto:
             st.caption("Recherche une crypto ci-dessus pour l'ajouter.")
 
         st.divider()
-        st.subheader("Import en masse (CSV)")
+        st.subheader(tr("crypto.csv_import"))
         with st.expander("Importer depuis Binance / Coinbase / CSV générique"):
             st.caption(
                 "Formats acceptés : **Binance** (colonnes Date, Pair, Side, Price, Executed, Fee) · "
@@ -3817,7 +3951,7 @@ with tab_crypto:
                         st.rerun()
 
         st.divider()
-        st.subheader("Mes positions crypto")
+        st.subheader(tr("crypto.my_positions"))
 
         cpositions = get_positions(asset_class="crypto")
         if not cpositions:
@@ -4033,7 +4167,7 @@ with tab_crypto:
             per_model_c = _get_latest_per_model(all_csugg)
 
             # ── Scoreboard ─────────────────────────────────────────────────
-            st.subheader("IA Engine Competition — Crypto")
+            st.subheader(tr("crypto.ai_engine"))
 
             if sb_cdf.empty:
                 st.caption("Lance une première analyse crypto pour alimenter la compétition.")
@@ -4350,7 +4484,7 @@ with tab_crypto:
             st.divider()
 
             # ── Historique des analyses ────────────────────────────────────
-            st.subheader("Historique des analyses crypto")
+            st.subheader(tr("crypto.analysis_history"))
             csuggestions = get_suggestions(limit=50, asset_class="crypto")
 
             if not csuggestions:
@@ -4479,7 +4613,7 @@ with tab_alerts:
     _PURPOSE_DISPLAY = {k: f"{v['icon']} {v['label']}" for k, v in ALERT_PURPOSE_META.items()}
 
     with al_col:
-        st.subheader("Créer une alerte")
+        st.subheader(tr("alerts.create"))
         with st.form("alert_create_form", clear_on_submit=True):
             af1, af2 = st.columns([2, 2])
             with af1:
@@ -4535,7 +4669,7 @@ with tab_alerts:
 
     # ── Vérification manuelle ─────────────────────────────────────────────────
     with ar_col:
-        st.subheader("Vérification manuelle")
+        st.subheader(tr("alerts.check"))
         st.caption(
             "Les alertes sont vérifiées automatiquement au chargement de l'app. "
             "Lance une vérification manuelle à tout moment."
@@ -4590,7 +4724,7 @@ with tab_alerts:
     st.divider()
 
     # ── Liste des alertes actives ─────────────────────────────────────────────
-    st.subheader("Alertes actives")
+    st.subheader(tr("alerts.active"))
     _all_alerts = get_alerts(active_only=False)
     _active_list = [a for a in _all_alerts if a["active"]]
     _triggered_list = [a for a in _all_alerts if not a["active"]]
@@ -4643,7 +4777,7 @@ with tab_alerts:
     # ── Historique des alertes déclenchées ───────────────────────────────────
     if _triggered_list:
         st.divider()
-        st.subheader("Alertes déclenchées")
+        st.subheader(tr("alerts.triggered"))
         st.caption(
             f"{len(_triggered_list)} alerte(s) désactivée(s). "
             "Réactivez-en une pour la remettre en surveillance."
@@ -4945,7 +5079,7 @@ with tab_fiscal:
 
     # ── SECTION 1 — Actions / ETF ─────────────────────────────────────────────
     st.divider()
-    st.subheader("◈ Actions / ETF — Plus-values réalisées")
+    st.subheader(tr("fiscal.stocks_gains"))
 
     _stk_lines = compute_stock_pv(year=_fy_year)
 
@@ -4992,7 +5126,7 @@ with tab_fiscal:
 
     # ── SECTION 2 — Crypto / Formulaire 2086 ─────────────────────────────────
     st.divider()
-    st.subheader("₿ Crypto — Formulaire 2086")
+    st.subheader(tr("fiscal.crypto_2086"))
 
     _cry_result = compute_crypto_pv_2086(year=_fy_year)
     _cry_lines  = _cry_result["lines"]
@@ -5082,7 +5216,7 @@ with tab_fiscal:
     # ── SECTION 3 — Résumé fiscal global ─────────────────────────────────────
     if _stk_lines or _cry_lines:
         st.divider()
-        st.subheader("Récapitulatif fiscal global")
+        st.subheader(tr("fiscal.summary"))
         _glob_pv  = (_stk_pv  if _stk_lines else 0) + _cry_result.get("total_pv", 0)
         _glob_mv  = (abs(_stk_mv) if _stk_lines else 0) + _cry_result.get("total_mv", 0)
         _glob_net = (_stk_net if _stk_lines else 0) + _cry_result.get("total_net", 0)
@@ -5109,16 +5243,51 @@ with tab_settings:
     from backend import settings as _settings
     from backend.notifiers import send_telegram_test, send_discord_test
 
-    st.markdown("### ⚙ Paramètres — Notifications")
-    st.caption(
-        "Configure tes canaux d'alerte directement ici. "
-        "Les valeurs sont sauvegardées dans `data/settings.json` — "
-        "aucune modification du fichier `.env` n'est nécessaire."
-    )
+    # ── Section Affichage (langue + thème) ────────────────────────────────────
+    st.markdown(f"### {tr('settings.display_title')}")
+
+    _s_ui = _settings.get_section("ui", {"language": "fr", "theme": "dark"})
+
+    _ui_c1, _ui_c2 = st.columns(2)
+
+    with _ui_c1:
+        _lang_map = {"Français 🇫🇷": "fr", "English 🇬🇧": "en"}
+        _lang_cur = _s_ui.get("language", "fr")
+        _lang_sel = st.radio(
+            tr("settings.lang_label"),
+            options=list(_lang_map.keys()),
+            index=list(_lang_map.values()).index(_lang_cur) if _lang_cur in _lang_map.values() else 0,
+            horizontal=True,
+            key="radio_lang",
+        )
+
+    with _ui_c2:
+        _theme_map = {tr("settings.theme_dark"): "dark", tr("settings.theme_light"): "light"}
+        _theme_cur = _s_ui.get("theme", "dark")
+        _theme_sel = st.radio(
+            tr("settings.theme_label"),
+            options=list(_theme_map.keys()),
+            index=list(_theme_map.values()).index(_theme_cur) if _theme_cur in _theme_map.values() else 0,
+            horizontal=True,
+            key="radio_theme",
+        )
+
+    if st.button(tr("settings.apply"), type="primary", key="btn_apply_prefs"):
+        _settings.save_section("ui", {
+            "language": _lang_map[_lang_sel],
+            "theme":    _theme_map[_theme_sel],
+        })
+        st.success(tr("settings.saved"))
+        st.rerun()
+
+    # ── Section Notifications ─────────────────────────────────────────────────
+    st.divider()
+    st.markdown(f"### {tr('settings.notif_title')}")
+    st.caption(tr("settings.notif_caption"))
 
     # ── Section Email (SMTP) ───────────────────────────────────────────────────
     st.divider()
-    st.subheader("📧 Email (SMTP)")
+    st.subheader(tr("settings.email_title"))
 
     _s_email = _settings.get_section("smtp", {
         "host": "smtp.gmail.com", "port": 587,
@@ -5136,7 +5305,7 @@ with tab_settings:
                                    placeholder="laisser vide = même que l'expéditeur")
 
         _sm_col1, _sm_col2 = st.columns([1, 3])
-        _smtp_save = _sm_col1.form_submit_button("💾 Sauvegarder", type="primary")
+        _smtp_save = _sm_col1.form_submit_button(tr("btn.save"), type="primary")
         if _smtp_save:
             _settings.save_section("smtp", {
                 "host": _smtp_host, "port": int(_smtp_port),
@@ -5147,7 +5316,7 @@ with tab_settings:
 
     # Test email (outside form so it can be triggered independently)
     if _settings.smtp_configured():
-        if st.button("📤 Envoyer un email de test", key="test_smtp"):
+        if st.button(tr("btn.test_email"), key="test_smtp"):
             import smtplib
             from email.mime.text import MIMEText
             _th = _settings.get("smtp", "host",  "SMTP_HOST")
@@ -5172,7 +5341,7 @@ with tab_settings:
 
     # ── Section Telegram ──────────────────────────────────────────────────────
     st.divider()
-    st.subheader("✈ Telegram")
+    st.subheader(tr("settings.tg_title"))
     st.caption(
         "1. Crée un bot via [@BotFather](https://t.me/BotFather) → `/newbot` → copie le token  \n"
         "2. Envoie `/start` à ton bot, puis récupère ton `chat_id` : "
@@ -5186,13 +5355,13 @@ with tab_settings:
                                     placeholder="123456789:ABCdef...", type="password")
         _tg_chat_id = st.text_input("Chat ID", value=_s_tg.get("chat_id", ""),
                                     placeholder="987654321")
-        _tg_save = st.form_submit_button("💾 Sauvegarder", type="primary")
+        _tg_save = st.form_submit_button(tr("btn.save"), type="primary")
         if _tg_save:
             _settings.save_section("telegram", {"bot_token": _tg_token, "chat_id": _tg_chat_id})
             st.success("✓ Paramètres Telegram sauvegardés.")
 
     if _settings.telegram_configured():
-        if st.button("📤 Envoyer un message de test", key="test_telegram"):
+        if st.button(tr("btn.test_msg"), key="test_telegram"):
             _tok = _settings.get("telegram", "bot_token", "TELEGRAM_BOT_TOKEN")
             _cid = _settings.get("telegram", "chat_id",   "TELEGRAM_CHAT_ID")
             _ok, _err = send_telegram_test(_tok, _cid)
@@ -5205,7 +5374,7 @@ with tab_settings:
 
     # ── Section Discord ───────────────────────────────────────────────────────
     st.divider()
-    st.subheader("💬 Discord")
+    st.subheader(tr("settings.dc_title"))
     st.caption(
         "Dans ton serveur Discord : **Paramètres du salon** → **Intégrations** → "
         "**Webhooks** → **Nouveau webhook** → copie l'URL."
@@ -5217,13 +5386,13 @@ with tab_settings:
         _dc_url = st.text_input("Webhook URL", value=_s_dc.get("webhook_url", ""),
                                 placeholder="https://discord.com/api/webhooks/xxx/yyy",
                                 type="password")
-        _dc_save = st.form_submit_button("💾 Sauvegarder", type="primary")
+        _dc_save = st.form_submit_button(tr("btn.save"), type="primary")
         if _dc_save:
             _settings.save_section("discord", {"webhook_url": _dc_url})
             st.success("✓ Webhook Discord sauvegardé.")
 
     if _settings.discord_configured():
-        if st.button("📤 Envoyer un message de test", key="test_discord"):
+        if st.button(tr("btn.test_msg"), key="test_discord"):
             _ok, _err = send_discord_test(_settings.get("discord", "webhook_url", "DISCORD_WEBHOOK_URL"))
             if _ok:
                 st.success("✓ Message Discord envoyé avec succès !")
@@ -5234,20 +5403,20 @@ with tab_settings:
 
     # ── Statut récapitulatif ──────────────────────────────────────────────────
     st.divider()
-    st.subheader("Statut des canaux")
+    st.subheader(tr("settings.status_title"))
     _nc1, _nc2, _nc3 = st.columns(3)
     _nc1.metric(
         "📧 Email",
-        "✓ Configuré" if _settings.smtp_configured() else "Non configuré",
+        tr("settings.configured") if _settings.smtp_configured() else tr("settings.not_configured"),
         delta_color="off",
     )
     _nc2.metric(
         "✈ Telegram",
-        "✓ Configuré" if _settings.telegram_configured() else "Non configuré",
+        tr("settings.configured") if _settings.telegram_configured() else tr("settings.not_configured"),
         delta_color="off",
     )
     _nc3.metric(
         "💬 Discord",
-        "✓ Configuré" if _settings.discord_configured() else "Non configuré",
+        tr("settings.configured") if _settings.discord_configured() else tr("settings.not_configured"),
         delta_color="off",
     )
