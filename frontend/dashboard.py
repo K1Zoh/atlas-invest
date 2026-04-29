@@ -65,11 +65,36 @@ from backend.analyzers.crypto_prompt import build_crypto_analysis_prompt
 from backend.analyzers.runner import run_analysis
 from backend.i18n import tr
 import backend.settings as _app_settings
+import base64
+
+# ── Logo helpers ────────────────────────────────────────────────────────────────
+_LOGO_PATH = Path(__file__).parent.parent / "assets" / "logo.png"
+
+def _logo_b64() -> str:
+    if _LOGO_PATH.exists():
+        return base64.b64encode(_LOGO_PATH.read_bytes()).decode()
+    return ""
+
+def _logo_img_tag(size: int = 40) -> str:
+    b64 = _logo_b64()
+    if not b64:
+        return ""
+    return (
+        f'<img src="data:image/png;base64,{b64}" '
+        f'style="width:{size}px;height:{size}px;object-fit:contain;'
+        f'image-rendering:pixelated;flex-shrink:0;" alt="logo">'
+    )
 
 # ── Config ─────────────────────────────────────────────────────────────────────
+try:
+    from PIL import Image as _PILImage
+    _page_icon = _PILImage.open(_LOGO_PATH) if _LOGO_PATH.exists() else "📈"
+except Exception:
+    _page_icon = "📈"
+
 st.set_page_config(
     page_title="STOCK_TERMINAL",
-    page_icon="📈",
+    page_icon=_page_icon,
     layout="wide",
     initial_sidebar_state="collapsed",
 )
@@ -1601,11 +1626,16 @@ col_brand, col_refresh = st.columns([8, 2])
 with col_brand:
     st.markdown(f"""
     <div style="padding:0.5rem 0 1rem;">
-        <div style="display:flex;align-items:center;gap:10px;">
-            <span style="font-size:26px;font-weight:800;letter-spacing:-0.05em;text-transform:uppercase;line-height:1;background:linear-gradient(to bottom,#ffffff 20%,rgba(255,255,255,0.55) 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">STOCK_TERMINAL</span>
-            <span class="st-pill">v2.0</span>
+        <div style="display:flex;align-items:center;gap:14px;">
+            {_logo_img_tag(44)}
+            <div>
+                <div style="display:flex;align-items:center;gap:10px;">
+                    <span style="font-size:26px;font-weight:800;letter-spacing:-0.05em;text-transform:uppercase;line-height:1;background:linear-gradient(to bottom,#ffffff 20%,rgba(255,255,255,0.55) 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">STOCK_TERMINAL</span>
+                    <span class="st-pill">v2.0</span>
+                </div>
+                <div style="font-size:10px;color:rgba(78,222,163,0.70);letter-spacing:0.14em;margin-top:4px;text-transform:uppercase;">{tr('brand.subtitle')}</div>
+            </div>
         </div>
-        <div style="font-size:10px;color:rgba(78,222,163,0.70);letter-spacing:0.14em;margin-top:4px;text-transform:uppercase;">{tr('brand.subtitle')}</div>
     </div>
     """, unsafe_allow_html=True)
 with col_refresh:
