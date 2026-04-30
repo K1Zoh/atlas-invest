@@ -1,7 +1,7 @@
 """
 Bilingual UI strings — French (default) and English.
-Usage: from backend.i18n import t
-       t("tab.dashboard")   reads st.session_state._lang
+Usage: from backend.i18n import tr
+       tr("tab.dashboard")   reads st.session_state._lang
 """
 from __future__ import annotations
 import streamlit as st
@@ -16,7 +16,7 @@ _T: dict[str, dict[str, str]] = {
         "tab.crypto":     "₿  Crypto",
         "tab.alerts":     "◉  Alertes",
         "tab.watchlist":  "◎  Watchlist",
-        "tab.fiscal":     "📊  Fiscal",
+        "tab.fiscal":     "▤  Fiscal",
         "tab.settings":   "⚙  Paramètres",
         # ── Dashboard ──────────────────────────────────────────────────────────
         "dash.portfolio_evolution": "Évolution du portefeuille",
@@ -25,7 +25,7 @@ _T: dict[str, dict[str, str]] = {
         "dash.stock_alloc":         "Actions / ETF — Répartition",
         "dash.crypto_alloc":        "Crypto — Répartition",
         "dash.geo":                 "Exposition géographique",
-        "dash.rebalance":           "⚖️ Rééquilibrage du portefeuille",
+        "dash.rebalance":           "Rééquilibrage du portefeuille",
         "dash.risk_metrics":        "Métriques de risque",
         # ── Common (shared across tabs) ────────────────────────────────────────
         "common.normalized":        "Évolution normalisée — base 100",
@@ -43,7 +43,7 @@ _T: dict[str, dict[str, str]] = {
         "stocks.sell":              "Enregistrer une vente",
         "stocks.my_positions":      "Mes positions",
         "stocks.dca":               "Simulateur DCA",
-        "stocks.dividends":         "💰 Suivi des dividendes",
+        "stocks.dividends":         "Suivi des dividendes",
         "stocks.dividend_yield":    "Rendement des positions",
         "stocks.add_dividend":      "Enregistrer un dividende reçu",
         "stocks.dividend_history":  "Historique des dividendes reçus",
@@ -67,27 +67,27 @@ _T: dict[str, dict[str, str]] = {
         "fiscal.crypto_2086":       "₿ Crypto — Formulaire 2086",
         "fiscal.summary":           "Récapitulatif fiscal global",
         # ── Settings tab ───────────────────────────────────────────────────────
-        "settings.display_title":   "⚙ Affichage",
+        "settings.display_title":   "Affichage",
         "settings.lang_label":      "Langue / Language",
         "settings.theme_label":     "Thème",
-        "settings.theme_dark":      "🌙 Sombre",
-        "settings.theme_light":     "☀️ Clair",
+        "settings.theme_dark":      "◑ Sombre",
+        "settings.theme_light":     "◐ Clair",
         "settings.apply":           "Appliquer",
         "settings.saved":           "✓ Préférences sauvegardées.",
-        "settings.notif_title":     "⚙ Notifications",
+        "settings.notif_title":     "Notifications",
         "settings.notif_caption":   (
             "Configure tes canaux d'alerte directement ici. "
             "Les valeurs sont sauvegardées dans `data/settings.json` — "
             "aucune modification du fichier `.env` n'est nécessaire."
         ),
-        "settings.email_title":     "📧 Email (SMTP)",
-        "settings.tg_title":        "✈ Telegram",
-        "settings.dc_title":        "💬 Discord",
+        "settings.email_title":     "Email (SMTP)",
+        "settings.tg_title":        "Telegram",
+        "settings.dc_title":        "Discord",
         "settings.status_title":    "Statut des canaux",
         "settings.configured":      "✓ Configuré",
-        "settings.not_configured":  "Non configuré",
+        "settings.not_configured":  "—",
         # ── Buttons ────────────────────────────────────────────────────────────
-        "btn.refresh":              "↻ ACTUALISER",
+        "btn.refresh":              "↻ Actualiser",
         "btn.search":               "Rechercher",
         "btn.use":                  "Utiliser ce titre",
         "btn.use_crypto":           "Utiliser cette crypto",
@@ -97,10 +97,10 @@ _T: dict[str, dict[str, str]] = {
         "btn.check_now":            "Vérifier maintenant",
         "btn.add_watchlist":        "Ajouter à la watchlist",
         "btn.reset":                "↺ Réinitialiser aux valeurs actuelles",
-        "btn.ai_rec":               "▶ RECOMMANDATION IA",
-        "btn.test_email":           "📤 Envoyer un email de test",
-        "btn.test_msg":             "📤 Envoyer un message de test",
-        "btn.save":                 "💾 Sauvegarder",
+        "btn.ai_rec":               "▶ Recommandation IA",
+        "btn.test_email":           "Tester l'envoi email",
+        "btn.test_msg":             "Tester l'envoi message",
+        "btn.save":                 "Enregistrer",
     },
     "en": {
         # ── Brand ──────────────────────────────────────────────────────────────
@@ -111,7 +111,7 @@ _T: dict[str, dict[str, str]] = {
         "tab.crypto":     "₿  Crypto",
         "tab.alerts":     "◉  Alerts",
         "tab.watchlist":  "◎  Watchlist",
-        "tab.fiscal":     "📊  Tax",
+        "tab.fiscal":     "▤  Tax",
         "tab.settings":   "⚙  Settings",
         # ── Dashboard ──────────────────────────────────────────────────────────
         "dash.portfolio_evolution": "Portfolio Evolution",
@@ -120,7 +120,7 @@ _T: dict[str, dict[str, str]] = {
         "dash.stock_alloc":         "Stocks / ETF — Allocation",
         "dash.crypto_alloc":        "Crypto — Allocation",
         "dash.geo":                 "Geographic Exposure",
-        "dash.rebalance":           "⚖️ Portfolio Rebalancing",
+        "dash.rebalance":           "Portfolio Rebalancing",
         "dash.risk_metrics":        "Risk Metrics",
         # ── Common ─────────────────────────────────────────────────────────────
         "common.normalized":        "Normalized Evolution — Base 100",
@@ -138,7 +138,7 @@ _T: dict[str, dict[str, str]] = {
         "stocks.sell":              "Record a Sale",
         "stocks.my_positions":      "My Positions",
         "stocks.dca":               "DCA Simulator",
-        "stocks.dividends":         "💰 Dividend Tracking",
+        "stocks.dividends":         "Dividend Tracking",
         "stocks.dividend_yield":    "Position Yield",
         "stocks.add_dividend":      "Record a Received Dividend",
         "stocks.dividend_history":  "Dividend History",
@@ -162,27 +162,27 @@ _T: dict[str, dict[str, str]] = {
         "fiscal.crypto_2086":       "₿ Crypto — Form 2086",
         "fiscal.summary":           "Global Tax Summary",
         # ── Settings tab ───────────────────────────────────────────────────────
-        "settings.display_title":   "⚙ Display",
+        "settings.display_title":   "Display",
         "settings.lang_label":      "Language / Langue",
         "settings.theme_label":     "Theme",
-        "settings.theme_dark":      "🌙 Dark",
-        "settings.theme_light":     "☀️ Light",
+        "settings.theme_dark":      "◑ Dark",
+        "settings.theme_light":     "◐ Light",
         "settings.apply":           "Apply",
         "settings.saved":           "✓ Preferences saved.",
-        "settings.notif_title":     "⚙ Notifications",
+        "settings.notif_title":     "Notifications",
         "settings.notif_caption":   (
             "Configure your alert channels directly here. "
             "Values are saved in `data/settings.json` — "
             "no `.env` file editing required."
         ),
-        "settings.email_title":     "📧 Email (SMTP)",
-        "settings.tg_title":        "✈ Telegram",
-        "settings.dc_title":        "💬 Discord",
+        "settings.email_title":     "Email (SMTP)",
+        "settings.tg_title":        "Telegram",
+        "settings.dc_title":        "Discord",
         "settings.status_title":    "Channel Status",
         "settings.configured":      "✓ Configured",
-        "settings.not_configured":  "Not configured",
+        "settings.not_configured":  "—",
         # ── Buttons ────────────────────────────────────────────────────────────
-        "btn.refresh":              "↻ REFRESH",
+        "btn.refresh":              "↻ Refresh",
         "btn.search":               "Search",
         "btn.use":                  "Use this ticker",
         "btn.use_crypto":           "Use this crypto",
@@ -192,10 +192,10 @@ _T: dict[str, dict[str, str]] = {
         "btn.check_now":            "Check Now",
         "btn.add_watchlist":        "Add to Watchlist",
         "btn.reset":                "↺ Reset to current values",
-        "btn.ai_rec":               "▶ AI RECOMMENDATION",
-        "btn.test_email":           "📤 Send test email",
-        "btn.test_msg":             "📤 Send test message",
-        "btn.save":                 "💾 Save",
+        "btn.ai_rec":               "▶ AI Recommendation",
+        "btn.test_email":           "Test email sending",
+        "btn.test_msg":             "Test message sending",
+        "btn.save":                 "Save",
     },
 }
 

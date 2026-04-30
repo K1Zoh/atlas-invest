@@ -360,6 +360,46 @@ section[data-testid="stSidebar"] {
     border-color: rgba(255,255,255,0.06) !important;
 }
 
+/* ── Inner / nested tabs — underline style ── */
+[data-baseweb="tab-panel"] [data-baseweb="tab-list"] {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    padding: 0 !important;
+    gap: 0 !important;
+    border-bottom: 1px solid rgba(45,45,45,0.65) !important;
+    margin-bottom: 1.4rem !important;
+}
+[data-baseweb="tab-panel"] [data-baseweb="tab"] {
+    padding: 0.38rem 1.1rem !important;
+    border-radius: 0 !important;
+    font-size: 11px !important;
+    font-weight: 500 !important;
+    text-transform: none !important;
+    letter-spacing: 0.03em !important;
+    color: rgba(148,163,184,0.60) !important;
+    border: none !important;
+    border-bottom: 2px solid transparent !important;
+    background: transparent !important;
+    margin-bottom: -1px !important;
+    transition: color 0.15s ease, border-color 0.15s ease !important;
+    box-shadow: none !important;
+}
+[data-baseweb="tab-panel"] [aria-selected="true"] {
+    background: transparent !important;
+    border-bottom: 2px solid #10b981 !important;
+    border-color: transparent transparent #10b981 transparent !important;
+    color: #10b981 !important;
+    text-shadow: none !important;
+    box-shadow: none !important;
+}
+[data-baseweb="tab-panel"] [data-baseweb="tab"]:hover:not([aria-selected="true"]) {
+    color: #e1e2e8 !important;
+    background: transparent !important;
+    border-color: transparent !important;
+}
+
 /* ── Buttons ── */
 .stButton > button {
     border-radius: 0px !important;
@@ -904,6 +944,60 @@ section[data-testid="stSidebar"] {
 }
 ::-webkit-scrollbar-track { background: #f0f0f0 !important; }
 ::-webkit-scrollbar-thumb { background: #c8d0c8 !important; }
+/* ── Aggressive text contrast ── */
+:root {
+    --text-color: #0f172a !important;
+    --background-color: #f4f5f4 !important;
+    --secondary-background-color: #ffffff !important;
+    color-scheme: light;
+}
+body, .main, [data-testid="stAppViewContainer"] {
+    color: #0f172a !important;
+}
+.stMarkdown, .stMarkdown p, .stMarkdown li, .stMarkdown span,
+.stMarkdown a, .stMarkdown strong, .stMarkdown em, .stMarkdown code,
+.stText, [data-testid="stText"], [data-testid="stText"] *,
+[data-testid="stMarkdownContainer"], [data-testid="stMarkdownContainer"] *,
+[data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] *,
+.stCaption, [data-testid="stCaption"], [data-testid="stCaption"] *,
+.element-container p, .element-container span,
+.stAlert, .stAlert *, [data-testid="stAlert"], [data-testid="stAlert"] *,
+[data-testid="stExpander"] p, [data-testid="stExpander"] span,
+[data-testid="stExpander"] li, [data-testid="stExpander"] label,
+[data-testid="stInfo"], [data-testid="stInfo"] *,
+[data-testid="stSuccess"], [data-testid="stSuccess"] *,
+[data-testid="stWarning"], [data-testid="stWarning"] *,
+[data-testid="stError"], [data-testid="stError"] * {
+    color: #0f172a !important;
+}
+/* Input/form labels */
+.stTextInput label, .stNumberInput label, .stTextArea label,
+.stSelectbox label, .stRadio label, .stCheckbox label,
+.stMultiSelect label, .stDateInput label, .stSlider label,
+[data-testid="stWidgetLabel"], [data-testid="stWidgetLabel"] * {
+    color: #334155 !important;
+}
+/* Radio & checkbox options text */
+.stRadio div[role="radiogroup"] label span,
+.stCheckbox label span,
+[data-testid="stRadio"] label span { color: #1e293b !important; }
+/* Inner tabs (nested) light mode */
+[data-baseweb="tab-panel"] [data-baseweb="tab-list"] {
+    border-bottom-color: rgba(200,200,200,0.65) !important;
+}
+[data-baseweb="tab-panel"] [data-baseweb="tab"] { color: rgba(100,116,139,0.65) !important; }
+[data-baseweb="tab-panel"] [aria-selected="true"] {
+    border-bottom-color: #059669 !important;
+    border-color: transparent transparent #059669 transparent !important;
+    color: #059669 !important;
+}
+[data-baseweb="tab-panel"] [data-baseweb="tab"]:hover:not([aria-selected="true"]) {
+    color: #1e293b !important;
+}
+/* Select options text */
+[data-baseweb="menu"] li, [data-baseweb="option"] { color: #0f172a !important; }
+/* Table / dataframe text */
+[data-testid="stDataFrame"] * { color: #0f172a; }
 </style>""", unsafe_allow_html=True)
 
 # ── Session state ───────────────────────────────────────────────────────────────
@@ -2299,7 +2393,7 @@ with tab_stocks:
         "◈  Mes positions",
         "⟳  Simulateur DCA",
         "◎  Analyse IA",
-        "💰  Dividendes",
+        "◇  Dividendes",
     ])
 
     # ══ STOCKS — Vue d'ensemble ═══════════════════════════════════════════════
@@ -5084,14 +5178,14 @@ with tab_watchlist:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# TAB 6 — 📊 Fiscal
+# TAB 6 — Fiscal
 # ══════════════════════════════════════════════════════════════════════════════
 
 with tab_fiscal:
     from backend.tax import compute_stock_pv, compute_crypto_pv_2086, available_years
     import io, csv
 
-    st.markdown("### 📊 Export fiscal — Plus-values réalisées")
+    st.markdown("### Export fiscal — Plus-values réalisées")
     st.caption(
         "Actions/ETF : méthode PRU (coût moyen pondéré). "
         "Crypto : formule 2086 officielle (BOFiP). "
@@ -5281,7 +5375,7 @@ with tab_settings:
     _ui_c1, _ui_c2 = st.columns(2)
 
     with _ui_c1:
-        _lang_map = {"Français 🇫🇷": "fr", "English 🇬🇧": "en"}
+        _lang_map = {"Français": "fr", "English": "en"}
         _lang_cur = _s_ui.get("language", "fr")
         _lang_sel = st.radio(
             tr("settings.lang_label"),
@@ -5324,13 +5418,48 @@ with tab_settings:
         "user": "", "pass_": "", "to": "",
     })
 
+    _SMTP_PROVIDERS = {
+        "Gmail":              ("smtp.gmail.com",           587),
+        "Outlook / Hotmail":  ("smtp-mail.outlook.com",    587),
+        "Yahoo Mail":         ("smtp.mail.yahoo.com",      587),
+        "iCloud":             ("smtp.mail.me.com",         587),
+        "Zoho Mail":          ("smtp.zoho.com",            587),
+        "OVH":                ("ssl0.ovh.net",             465),
+        "Infomaniak":         ("mail.infomaniak.com",      587),
+        "ProtonMail Bridge":  ("127.0.0.1",                1025),
+        "Personnalisé":       ("",                         587),
+    }
+    _SMTP_HELP = {
+        "Gmail":             "Activez la validation en 2 étapes, puis : Compte Google → Sécurité → **Mots de passe d'application**",
+        "Outlook / Hotmail": "Utilisez votre mot de passe habituel ou un mot de passe d'application si MFA activé.",
+        "Yahoo Mail":        "Activez 'Autoriser les apps moins sécurisées' ou créez un mot de passe d'application.",
+        "iCloud":            "Utilisez un mot de passe spécifique à l'app : Identifiant Apple → Sécurité → Mots de passe d'app.",
+        "ProtonMail Bridge": "Nécessite ProtonMail Bridge installé localement (port 1025).",
+    }
+
+    _cur_host = _s_email.get("host", "smtp.gmail.com")
+    _detected = next((n for n, (h, _) in _SMTP_PROVIDERS.items() if h == _cur_host), "Personnalisé")
+
+    _prov_sel = st.selectbox(
+        "Fournisseur",
+        options=list(_SMTP_PROVIDERS.keys()),
+        index=list(_SMTP_PROVIDERS.keys()).index(_detected),
+        key="smtp_provider_sel",
+    )
+    if _prov_sel in _SMTP_HELP:
+        st.caption(_SMTP_HELP[_prov_sel])
+
+    _prov_host, _prov_port = _SMTP_PROVIDERS[_prov_sel]
+    _default_host = _prov_host or _cur_host
+    _default_port = _prov_port if _prov_host else int(_s_email.get("port", 587))
+    _allow_edit   = _prov_sel == "Personnalisé"
+
     with st.form("form_smtp", clear_on_submit=False):
         _sc1, _sc2 = st.columns([3, 1])
-        _smtp_host = _sc1.text_input("Serveur SMTP", value=_s_email.get("host", "smtp.gmail.com"))
-        _smtp_port = _sc2.number_input("Port", value=int(_s_email.get("port", 587)), min_value=1, max_value=65535, step=1)
-        _smtp_user = st.text_input("Email expéditeur", value=_s_email.get("user", ""), placeholder="ton.email@gmail.com")
-        _smtp_pass = st.text_input("Mot de passe d'application", value=_s_email.get("pass_", ""), type="password",
-                                   help="Gmail : Compte Google → Sécurité → Mots de passe d'application (2FA requis)")
+        _smtp_host = _sc1.text_input("Serveur SMTP", value=_default_host, disabled=not _allow_edit)
+        _smtp_port = _sc2.number_input("Port", value=_default_port, min_value=1, max_value=65535, step=1, disabled=not _allow_edit)
+        _smtp_user = st.text_input("Email expéditeur", value=_s_email.get("user", ""), placeholder="ton.email@provider.com")
+        _smtp_pass = st.text_input("Mot de passe / Clé d'application", value=_s_email.get("pass_", ""), type="password")
         _smtp_to   = st.text_input("Email destinataire des alertes", value=_s_email.get("to", ""),
                                    placeholder="laisser vide = même que l'expéditeur")
 
@@ -5338,7 +5467,8 @@ with tab_settings:
         _smtp_save = _sm_col1.form_submit_button(tr("btn.save"), type="primary")
         if _smtp_save:
             _settings.save_section("smtp", {
-                "host": _smtp_host, "port": int(_smtp_port),
+                "host": _smtp_host if _allow_edit else _prov_host,
+                "port": int(_smtp_port) if _allow_edit else _prov_port,
                 "user": _smtp_user, "pass_": _smtp_pass,
                 "to":   _smtp_to or _smtp_user,
             })
@@ -5436,17 +5566,17 @@ with tab_settings:
     st.subheader(tr("settings.status_title"))
     _nc1, _nc2, _nc3 = st.columns(3)
     _nc1.metric(
-        "📧 Email",
+        "Email",
         tr("settings.configured") if _settings.smtp_configured() else tr("settings.not_configured"),
         delta_color="off",
     )
     _nc2.metric(
-        "✈ Telegram",
+        "Telegram",
         tr("settings.configured") if _settings.telegram_configured() else tr("settings.not_configured"),
         delta_color="off",
     )
     _nc3.metric(
-        "💬 Discord",
+        "Discord",
         tr("settings.configured") if _settings.discord_configured() else tr("settings.not_configured"),
         delta_color="off",
     )
