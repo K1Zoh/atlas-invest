@@ -298,11 +298,18 @@ def send_alert_email(triggered: list[dict]) -> tuple[bool, str]:
     msg.attach(MIMEText(body_html, "html", "utf-8"))
 
     try:
-        with smtplib.SMTP(host, port) as server:
-            server.ehlo()
-            server.starttls()
-            server.login(user, password)
-            server.sendmail(user, [to], msg.as_string())
+        import ssl as _ssl_mod
+        if port == 465:
+            ctx = _ssl_mod.create_default_context()
+            with smtplib.SMTP_SSL(host, port, context=ctx) as server:
+                server.login(user, password)
+                server.sendmail(user, [to], msg.as_string())
+        else:
+            with smtplib.SMTP(host, port) as server:
+                server.ehlo()
+                server.starttls()
+                server.login(user, password)
+                server.sendmail(user, [to], msg.as_string())
         with get_connection() as conn:
             for a in triggered:
                 conn.execute("UPDATE alerts SET email_sent=1 WHERE id=?", (a["id"],))

@@ -116,7 +116,7 @@ _dot_html = (
   var theme = '__THEME__';
   var dark  = theme !== 'light';
 
-  var dotColor = dark ? 'rgba(16,185,129,0.18)' : 'rgba(15,23,42,0.09)';
+  var dotColor = dark ? 'rgba(16,185,129,0.18)' : 'rgba(5,150,105,0.22)';
   var bgColor  = dark ? '#0a0a0a'               : '#f4f5f4';
   var vigEdge  = dark ? '10,10,10'              : '244,245,244';
   var vigBg    = 'radial-gradient(ellipse at 50% 50%,transparent 40%,rgba(' + vigEdge + ',0.82) 100%),'
@@ -837,8 +837,8 @@ html, body,
 [data-testid="stAppViewContainer"],
 [data-testid="stAppViewContainer"] > .main,
 [data-testid="stMain"], .main {
-    background-color: #f4f5f4 !important;
-    background: #f4f5f4 !important;
+    background-color: transparent !important;
+    background: transparent !important;
     color: #0f172a !important;
 }
 [data-testid="stAppViewContainer"] { color: #0f172a !important; }
@@ -5441,7 +5441,7 @@ with tab_settings:
     _detected = next((n for n, (h, _) in _SMTP_PROVIDERS.items() if h == _cur_host), "Personnalisé")
 
     _prov_sel = st.selectbox(
-        "Fournisseur",
+        tr("settings.smtp_provider"),
         options=list(_SMTP_PROVIDERS.keys()),
         index=list(_SMTP_PROVIDERS.keys()).index(_detected),
         key="smtp_provider_sel",
@@ -5453,15 +5453,18 @@ with tab_settings:
     _default_host = _prov_host or _cur_host
     _default_port = _prov_port if _prov_host else int(_s_email.get("port", 587))
     _allow_edit   = _prov_sel == "Personnalisé"
+    _ssl_mode     = _prov_port == 465 or (not _prov_host and int(_s_email.get("port", 587)) == 465)
+    if _ssl_mode:
+        st.caption("🔒 SSL/TLS direct (port 465)")
 
     with st.form("form_smtp", clear_on_submit=False):
         _sc1, _sc2 = st.columns([3, 1])
-        _smtp_host = _sc1.text_input("Serveur SMTP", value=_default_host, disabled=not _allow_edit)
-        _smtp_port = _sc2.number_input("Port", value=_default_port, min_value=1, max_value=65535, step=1, disabled=not _allow_edit)
-        _smtp_user = st.text_input("Email expéditeur", value=_s_email.get("user", ""), placeholder="ton.email@provider.com")
-        _smtp_pass = st.text_input("Mot de passe / Clé d'application", value=_s_email.get("pass_", ""), type="password")
-        _smtp_to   = st.text_input("Email destinataire des alertes", value=_s_email.get("to", ""),
-                                   placeholder="laisser vide = même que l'expéditeur")
+        _smtp_host = _sc1.text_input(tr("settings.smtp_server"), value=_default_host, disabled=not _allow_edit)
+        _smtp_port = _sc2.number_input(tr("settings.smtp_port"), value=_default_port, min_value=1, max_value=65535, step=1, disabled=not _allow_edit)
+        _smtp_user = st.text_input(tr("settings.smtp_from"), value=_s_email.get("user", ""), placeholder="ton.email@provider.com")
+        _smtp_pass = st.text_input(tr("settings.smtp_pass"), value=_s_email.get("pass_", ""), type="password")
+        _smtp_to   = st.text_input(tr("settings.smtp_to"), value=_s_email.get("to", ""),
+                                   placeholder=tr("settings.smtp_to_ph"))
 
         _sm_col1, _sm_col2 = st.columns([1, 3])
         _smtp_save = _sm_col1.form_submit_button(tr("btn.save"), type="primary")
@@ -5472,7 +5475,7 @@ with tab_settings:
                 "user": _smtp_user, "pass_": _smtp_pass,
                 "to":   _smtp_to or _smtp_user,
             })
-            st.success("✓ Paramètres email sauvegardés.")
+            st.success(tr("settings.smtp_saved"))
 
     # Test email (outside form so it can be triggered independently)
     if _settings.smtp_configured():
@@ -5485,19 +5488,25 @@ with tab_settings:
             _tpw = _settings.get("smtp", "pass_", "SMTP_PASS")
             _tto = _settings.get("smtp", "to",   "ALERT_EMAIL_TO") or _tu
             try:
+                import ssl as _ssl_mod
                 _msg = MIMEText("✅ STOCK_TERMINAL — Notifications email configurées avec succès !")
                 _msg["Subject"] = "STOCK_TERMINAL — Test notification"
                 _msg["From"]    = _tu
                 _msg["To"]      = _tto
-                with smtplib.SMTP(_th, _tp) as _srv:
-                    _srv.starttls()
-                    _srv.login(_tu, _tpw)
-                    _srv.sendmail(_tu, [_tto], _msg.as_string())
+                if int(_tp) == 465:
+                    with smtplib.SMTP_SSL(_th, _tp, context=_ssl_mod.create_default_context()) as _srv:
+                        _srv.login(_tu, _tpw)
+                        _srv.sendmail(_tu, [_tto], _msg.as_string())
+                else:
+                    with smtplib.SMTP(_th, _tp) as _srv:
+                        _srv.starttls()
+                        _srv.login(_tu, _tpw)
+                        _srv.sendmail(_tu, [_tto], _msg.as_string())
                 st.success(f"✓ Email de test envoyé à {_tto}")
             except Exception as _e:
                 st.error(f"Erreur : {_e}")
     else:
-        st.info("Remplis et sauvegarde les paramètres SMTP pour pouvoir tester.")
+        st.info(tr("settings.smtp_test_info"))
 
     # ── Section Telegram ──────────────────────────────────────────────────────
     st.divider()
@@ -5518,7 +5527,7 @@ with tab_settings:
         _tg_save = st.form_submit_button(tr("btn.save"), type="primary")
         if _tg_save:
             _settings.save_section("telegram", {"bot_token": _tg_token, "chat_id": _tg_chat_id})
-            st.success("✓ Paramètres Telegram sauvegardés.")
+            st.success(tr("settings.tg_saved"))
 
     if _settings.telegram_configured():
         if st.button(tr("btn.test_msg"), key="test_telegram"):
@@ -5530,7 +5539,7 @@ with tab_settings:
             else:
                 st.error(f"Erreur : {_err}")
     else:
-        st.info("Remplis et sauvegarde le token et le chat_id pour pouvoir tester.")
+        st.info(tr("settings.tg_test_info"))
 
     # ── Section Discord ───────────────────────────────────────────────────────
     st.divider()
@@ -5549,7 +5558,7 @@ with tab_settings:
         _dc_save = st.form_submit_button(tr("btn.save"), type="primary")
         if _dc_save:
             _settings.save_section("discord", {"webhook_url": _dc_url})
-            st.success("✓ Webhook Discord sauvegardé.")
+            st.success(tr("settings.dc_saved"))
 
     if _settings.discord_configured():
         if st.button(tr("btn.test_msg"), key="test_discord"):
@@ -5559,7 +5568,7 @@ with tab_settings:
             else:
                 st.error(f"Erreur : {_err}")
     else:
-        st.info("Remplis et sauvegarde le webhook URL pour pouvoir tester.")
+        st.info(tr("settings.dc_test_info"))
 
     # ── Statut récapitulatif ──────────────────────────────────────────────────
     st.divider()

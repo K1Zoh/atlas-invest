@@ -3,5 +3,6 @@ __pycache__/
 *.pyc
 .env
 data/portfolio.db
+data/settings.json
 .DS_Store
 node_modules
