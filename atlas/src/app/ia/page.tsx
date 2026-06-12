@@ -8,7 +8,6 @@ import {
   Badge,
   Button,
   Card,
-  CardHeader,
   EmptyState,
   Segmented,
   Skeleton,

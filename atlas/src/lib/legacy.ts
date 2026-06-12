@@ -6,13 +6,25 @@ import { setSetting } from "./settings";
 import type { AssetClass } from "./types";
 
 /**
- * One-click migration from the previous Streamlit app
- * (../data/portfolio.db + ../data/settings.json, relative to atlas/).
+ * One-click migration from the previous Streamlit app.
+ * Atlas first checks the historical root data directory, then the local
+ * OLD archive created when the legacy app is moved out of the active repo.
  */
 
-const LEGACY_DIR = path.resolve(process.cwd(), "..", "data");
-const LEGACY_DB = path.join(LEGACY_DIR, "portfolio.db");
-const LEGACY_SETTINGS = path.join(LEGACY_DIR, "settings.json");
+const LEGACY_DIRS = [
+  path.resolve(process.cwd(), "..", "data"),
+  path.resolve(process.cwd(), "..", "OLD", "data"),
+];
+
+function findLegacyFile(fileName: string): string {
+  return (
+    LEGACY_DIRS.map((dir) => path.join(dir, fileName)).find((candidate) => fs.existsSync(candidate)) ??
+    path.join(LEGACY_DIRS[0], fileName)
+  );
+}
+
+const LEGACY_DB = findLegacyFile("portfolio.db");
+const LEGACY_SETTINGS = findLegacyFile("settings.json");
 
 export function legacyDbAvailable(): boolean {
   return fs.existsSync(LEGACY_DB);

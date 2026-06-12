@@ -50,8 +50,9 @@ export default function DashboardPage() {
     if (points.length < 2) return { d7: null as number | null, d30: null as number | null };
     const last = points[points.length - 1];
     const pnlNow = last.value - last.invested;
+    const today = last.date ? new Date(`${last.date}T00:00:00.000Z`).getTime() : 0;
     const at = (daysAgo: number): number | null => {
-      const cutoff = new Date(Date.now() - daysAgo * 86_400_000).toISOString().slice(0, 10);
+      const cutoff = new Date(today - daysAgo * 86_400_000).toISOString().slice(0, 10);
       const p = points.find((x) => x.date >= cutoff);
       if (!p || p === last) return null;
       return pnlNow - (p.value - p.invested);

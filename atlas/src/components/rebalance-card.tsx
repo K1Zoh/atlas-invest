@@ -90,8 +90,6 @@ export function RebalanceCard() {
   }
   if (!data?.views.length || targetCrypto === null) return null;
 
-  const targetStock = 100 - targetCrypto;
-
   return (
     <Card className="fade-up pb-5" hover>
       <CardHeader

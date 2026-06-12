@@ -1,8 +1,16 @@
 .venv/
+.agents/
+.claude/
+OLD/
 __pycache__/
 *.pyc
 .env
 data/portfolio.db
 data/settings.json
+atlas/data/
 .DS_Store
 node_modules
+
+# exports courtier personnels
+*.csv
+!atlas/**/*.csv

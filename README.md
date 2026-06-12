@@ -1,50 +1,85 @@
-# Stock Market Analyzer — v2
+# Atlas — Pilote ton patrimoine
 
-Tableau de bord Streamlit pour suivre ton portefeuille boursier. Tout se gère depuis l'interface, aucun CSV requis.
+Application locale de suivi d'investissements **actions / ETF / crypto** avec copilote IA :
+cours en temps réel en EUR, rééquilibrage cible, journal d'investissement, fiscalité
+française, analyse double modèle (Gemini + Groq) nourrie de ton portefeuille réel.
 
-## Installation
+**Tes données restent sur ta machine** (SQLite local, aucune base cloud).
 
-```bash
-# Prérequis (une seule fois)
-brew install python@3.12 uv
+> L'application vit dans le dossier [`atlas/`](atlas/) — voir son
+> [README](atlas/README.md) pour le détail des fonctionnalités et de l'architecture.
 
-# Depuis le dossier du projet
-uv venv
-source .venv/bin/activate
-uv pip install -r requirements.txt
+## Installation sur un nouveau Mac
 
-# Phase 2 (optionnel — IA)
-cp .env.example .env
-# Remplis GEMINI_API_KEY et GROQ_API_KEY dans .env
-```
+### Méthode 1 — une seule commande (recommandée)
 
-## Lancement
+Ouvre l'app **Terminal** (Cmd+Espace, tape « Terminal »), colle cette ligne et
+appuie sur Entrée :
 
 ```bash
-streamlit run frontend/dashboard.py
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/K1Zoh/stock-market-analyzer/main/install.sh)"
 ```
 
-Ouvre http://localhost:8501 dans ton navigateur.
+Le script s'occupe de tout : Node.js si absent (mot de passe Mac demandé),
+téléchargement, construction, saisie optionnelle des clés IA, et création d'une
+**application « Atlas » dans le Launchpad** (sans avertissement de sécurité,
+l'app étant créée localement). À la fin, le navigateur s'ouvre tout seul.
+Relancer la même commande plus tard met à jour sans toucher aux données.
 
-## Utilisation
+> Prérequis : rien. Le script installe Node.js lui-même si besoin.
 
-1. Onglet **💼 Gérer mes positions** → saisis ton ticker, clique **Vérifier le ticker** pour auto-remplir le nom et voir le cours actuel, puis **Enregistrer**.
-2. Onglet **📊 Vue d'ensemble** → KPIs, graphiques et tableau détaillé.
-3. Bouton **🔄 Actualiser les cours** (en haut à droite) → rafraîchit les prix en temps réel.
+### Méthode 2 — terminal
 
-## Structure
+```bash
+git clone https://github.com/K1Zoh/stock-market-analyzer.git
+cd stock-market-analyzer
+npm install --prefix atlas
+npm run dev          # mode développement, http://localhost:3000
+# ou pour un usage quotidien :
+npm run build && npm run start
+```
+
+## Premier démarrage
+
+L'app démarre vide et t'accompagne :
+
+1. **Ajoute ta première position** avec le bouton `+` ou `⌘K` : tape un ticker ou un
+   nom (AAPL, bitcoin, MC.PA…), saisis le **montant en €** ou la quantité, le cours
+   se pré-remplit automatiquement (même pour une date passée).
+2. **Ou importe un CSV** (générique, Binance, Coinbase) dans Paramètres → Données.
+3. **Clés IA (optionnel, gratuit)** dans Paramètres → Intelligence artificielle :
+   - Gemini : https://aistudio.google.com/apikey
+   - Groq : https://console.groq.com
+4. **App mobile / Dock** : Atlas est une PWA — dans Chrome/Edge « Installer Atlas »,
+   sur iPhone Safari « Ajouter à l'écran d'accueil ».
+
+Si tu viens de l'ancienne app Streamlit : Paramètres → Données → **Migrer mes données**
+récupère transactions, watchlist et réglages en un clic si l'ancienne base locale est
+encore présente dans `data/` ou dans l'archive locale `OLD/data/`.
+
+## Mise à jour
+
+```bash
+git pull
+cd atlas && npm install && npm run build
+```
+
+## Structure du dépôt
 
 ```
 stock-market-analyzer/
-├── backend/
-│   ├── db.py          # SQLite CRUD
-│   ├── collectors.py  # Yahoo Finance via yfinance
-│   └── analytics.py   # Calculs portefeuille
-├── frontend/
-│   └── dashboard.py   # Interface Streamlit
-├── data/
-│   └── portfolio.db   # Créé automatiquement (ignoré par git)
-├── requirements.txt
-├── .env.example
-└── .gitignore
+├── Lancer Atlas.command   # lanceur macOS double-clic
+├── install.sh             # installeur macOS en une commande
+├── atlas/                 # l'application (Next.js + SQLite)
+│   ├── src/               # code (lib métier, pages, API, composants)
+│   └── data/              # ta base locale (jamais versionnée)
+├── .env.example           # modèle de configuration locale
+└── OLD/                   # archive locale ignorée par Git, si présente sur ce Mac
 ```
+
+## Confidentialité
+
+- Base de données, clés API et exports courtier sont **ignorés par git** : un clone
+  du dépôt ne contient aucune donnée personnelle.
+- Les seuls appels réseau sortants : Yahoo Finance et CoinGecko (cours), Gemini/Groq
+  (si clés configurées), Discord/Telegram/SMTP (si notifications configurées).

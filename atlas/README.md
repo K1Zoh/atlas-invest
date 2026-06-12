@@ -19,11 +19,20 @@ npm run build      # une fois
 npm start          # serveur de production
 ```
 
+Depuis la racine du dépôt, les raccourcis équivalents sont :
+
+```bash
+npm install --prefix atlas
+npm run dev
+npm run build
+npm run start
+```
+
 ## Premier démarrage
 
 1. Ouvre l'app → **Paramètres → Données → Migrer mes données** : récupère en un clic
    les transactions, la watchlist, les dividendes et la config de l'ancienne app
-   (`../data/portfolio.db`). Relançable sans doublons.
+   (`../data/portfolio.db` ou `../OLD/data/portfolio.db`). Relançable sans doublons.
 2. Les clés API du `.env` de l'ancienne app (racine du repo) sont lues automatiquement.
    Tu peux aussi les saisir dans **Paramètres → Intelligence artificielle** :
    - Gemini (gratuit) : https://aistudio.google.com/apikey

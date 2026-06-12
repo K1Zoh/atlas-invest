@@ -1,20 +1,8 @@
 {
-  "dependencies": {
-    "@react-three/fiber": "^8.17.10",
-    "@types/three": "^0.169.0",
-    "clsx": "^2.1.1",
-    "framer-motion": "^12.38.0",
-    "next": "^15.3.2",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "tailwind-merge": "^2.6.0",
-    "three": "^0.169.0"
-  },
-  "devDependencies": {
-    "@types/node": "^22.0.0",
-    "@types/react": "^18.3.1",
-    "@types/react-dom": "^18.3.1",
-    "tailwindcss": "^3.4.17",
-    "typescript": "^5.7.3"
+  "scripts": {
+    "install:atlas": "npm install --prefix atlas",
+    "dev": "npm run dev --prefix atlas",
+    "build": "npm run build --prefix atlas",
+    "start": "npm run start --prefix atlas"
   }
 }

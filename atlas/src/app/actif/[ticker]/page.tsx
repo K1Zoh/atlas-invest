@@ -59,12 +59,11 @@ function AssetPageInner() {
   const [aiResult, setAiResult] = useState<{ model: string; content: string } | null>(null);
 
   const view = data?.views.find((v) => v.ticker === ticker && v.assetClass === assetClass);
+  const coingeckoId = view?.coingeckoId;
 
-  const histUrl = useMemo(() => {
-    const p = new URLSearchParams({ ticker, class: assetClass, days: period });
-    if (view?.coingeckoId) p.set("cgId", view.coingeckoId);
-    return `/api/history?${p}`;
-  }, [ticker, assetClass, period, view?.coingeckoId]);
+  const histParams = new URLSearchParams({ ticker, class: assetClass, days: period });
+  if (coingeckoId) histParams.set("cgId", coingeckoId);
+  const histUrl = `/api/history?${histParams}`;
 
   const history = useApi<{ points: HistoryPoint[] }>(histUrl);
   const txs = useApi<{ transactions: Transaction[] }>(
@@ -106,7 +105,7 @@ function AssetPageInner() {
       const res = await postJson<{ model: string; content: string }>("/api/ai/asset", {
         ticker,
         assetClass,
-        coingeckoId: view?.coingeckoId,
+        coingeckoId,
       });
       setAiResult(res);
       pastAnalyses.reload();
