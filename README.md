@@ -17,7 +17,7 @@ Ouvre l'app **Terminal** (Cmd+Espace, tape « Terminal »), colle cette ligne et
 appuie sur Entrée :
 
 ```bash
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/K1Zoh/stock-market-analyzer/main/install.sh)"
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/K1Zoh/atlas-invest/main/install.sh)"
 ```
 
 Le script s'occupe de tout : Node.js si absent (mot de passe Mac demandé),
@@ -31,8 +31,8 @@ Relancer la même commande plus tard met à jour sans toucher aux données.
 ### Méthode 2 — terminal
 
 ```bash
-git clone https://github.com/K1Zoh/stock-market-analyzer.git
-cd stock-market-analyzer
+git clone https://github.com/K1Zoh/atlas-invest.git
+cd atlas-invest
 npm install --prefix atlas
 npm run dev          # mode développement, http://localhost:3000
 # ou pour un usage quotidien :
@@ -67,7 +67,7 @@ cd atlas && npm install && npm run build
 ## Structure du dépôt
 
 ```
-stock-market-analyzer/
+atlas-invest/
 ├── Lancer Atlas.command   # lanceur macOS double-clic
 ├── install.sh             # installeur macOS en une commande
 ├── atlas/                 # l'application (Next.js + SQLite)

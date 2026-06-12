@@ -2,7 +2,7 @@
 # ============================================================================
 # Atlas — installeur automatique pour macOS
 #
-#   bash -c "$(curl -fsSL https://raw.githubusercontent.com/K1Zoh/stock-market-analyzer/main/install.sh)"
+#   bash -c "$(curl -fsSL https://raw.githubusercontent.com/K1Zoh/atlas-invest/main/install.sh)"
 #
 # Ce script :
 #   1. installe Node.js s'il manque (Homebrew si présent, sinon paquet officiel — sudo demandé)
@@ -15,7 +15,7 @@
 
 set -euo pipefail
 
-REPO_TARBALL="https://github.com/K1Zoh/stock-market-analyzer/archive/refs/heads/main.tar.gz"
+REPO_TARBALL="https://github.com/K1Zoh/atlas-invest/archive/refs/heads/main.tar.gz"
 INSTALL_DIR="$HOME/Atlas"
 PORT="${PORT:-3000}"
 
@@ -59,7 +59,7 @@ fi
 info "Téléchargement d'Atlas…"
 TMP="$(mktemp -d)"
 curl -fsSL "$REPO_TARBALL" | tar -xz -C "$TMP"
-SRC="$(find "$TMP" -maxdepth 1 -type d -name "stock-market-analyzer-*" | head -1)"
+SRC="$(find "$TMP" -maxdepth 1 -type d -name "atlas-invest-*" | head -1)"
 [ -n "$SRC" ] || fail "Téléchargement impossible. Vérifie ta connexion."
 
 mkdir -p "$INSTALL_DIR"
