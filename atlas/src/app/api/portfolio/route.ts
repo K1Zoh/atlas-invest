@@ -7,51 +7,12 @@ import {
   concentrationAlerts,
   loadPortfolio,
 } from "@/lib/analytics";
+import { evaluateAlerts } from "@/lib/alert-engine";
 import { ok, oops } from "@/lib/api-helpers";
 import { fillStockSparks } from "@/lib/market";
-import { notifyTriggeredAlerts, type TriggeredAlertInfo } from "@/lib/notify";
-import { getPositions, listAlerts, markAlertTriggered } from "@/lib/repo";
-import type { PriceAlert, Quote } from "@/lib/types";
+import { getPositions } from "@/lib/repo";
 
 export const dynamic = "force-dynamic";
-
-function alertCondition(alert: PriceAlert, price: number): boolean {
-  switch (alert.kind) {
-    case "above":
-    case "sell_target":
-    case "take_profit":
-      return price >= alert.threshold;
-    case "below":
-    case "buy_target":
-    case "stop_loss":
-      return price <= alert.threshold;
-    default:
-      return false;
-  }
-}
-
-async function checkAlerts(quotes: Map<string, Quote>): Promise<TriggeredAlertInfo[]> {
-  const triggered: TriggeredAlertInfo[] = [];
-  for (const alert of listAlerts(true)) {
-    const q = quotes.get(`${alert.assetClass}:${alert.ticker}`);
-    if (!q) continue;
-    if (alertCondition(alert, q.priceEur)) {
-      markAlertTriggered(alert.id);
-      triggered.push({
-        ticker: alert.ticker,
-        assetClass: alert.assetClass,
-        kind: alert.kind,
-        threshold: alert.threshold,
-        currentPrice: q.priceEur,
-        label: alert.label,
-      });
-    }
-  }
-  if (triggered.length) {
-    await notifyTriggeredAlerts(triggered).catch(() => undefined);
-  }
-  return triggered;
-}
 
 export async function GET(req: NextRequest) {
   try {
@@ -68,7 +29,17 @@ export async function GET(req: NextRequest) {
       if (q?.spark7d) v.spark7d = q.spark7d;
     }
 
-    const triggeredAlerts = await checkAlerts(quotes);
+    const triggeredAlerts = await evaluateAlerts(quotes);
+
+    // Real freshness = age of the oldest quote actually used (cache-aware),
+    // not the response time. Lets the UI show how stale prices really are.
+    let quotesAsOf: string | null = null;
+    for (const v of views) {
+      const q = quotes.get(`${v.assetClass}:${v.ticker}`);
+      if (q?.updatedAt && (quotesAsOf === null || q.updatedAt < quotesAsOf)) {
+        quotesAsOf = q.updatedAt;
+      }
+    }
 
     return ok({
       views,
@@ -82,6 +53,7 @@ export async function GET(req: NextRequest) {
       },
       triggeredAlerts,
       errors,
+      quotesAsOf,
       updatedAt: new Date().toISOString(),
     });
   } catch (e) {

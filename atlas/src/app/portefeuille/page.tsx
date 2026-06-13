@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowUpDown, Bitcoin, CandlestickChart } from "lucide-react";
+import { AlertTriangle, ArrowUpDown, Bitcoin, CandlestickChart } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { Sparkline } from "@/components/charts";
@@ -150,6 +150,7 @@ function SortableTh({
 }
 
 function Row({ v, index, onOpen }: { v: PositionView; index: number; onOpen: () => void }) {
+  const { t } = useI18n();
   return (
     <tr
       onClick={onOpen}
@@ -176,7 +177,18 @@ function Row({ v, index, onOpen }: { v: PositionView; index: number; onOpen: () 
       </td>
       <td className="tnum px-3 py-3 text-right text-xs">{fmtQty(v.quantity)}</td>
       <td className="tnum px-3 py-3 text-right text-xs text-muted">{fmtEur(v.avgCost)}</td>
-      <td className="tnum px-3 py-3 text-right font-medium">{fmtEur(v.price)}</td>
+      <td className="tnum px-3 py-3 text-right font-medium">
+        {v.price === null ? (
+          <span
+            className="inline-flex items-center gap-1 rounded-md bg-warning-soft px-1.5 py-0.5 text-[10px] font-medium text-warning"
+            title={t("dash.priceUnavailable")}
+          >
+            <AlertTriangle className="h-3 w-3" /> {t("dash.priceUnavailable")}
+          </span>
+        ) : (
+          fmtEur(v.price)
+        )}
+      </td>
       <td className="px-3 py-2 text-center">
         <Sparkline data={v.spark7d} className="inline-block" />
       </td>

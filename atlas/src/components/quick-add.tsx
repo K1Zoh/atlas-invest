@@ -1,15 +1,24 @@
 "use client";
 
-import { ArrowLeft, Bitcoin, CandlestickChart, Eye, Search, Star, Wallet } from "lucide-react";
+import { ArrowLeft, Bitcoin, CandlestickChart, Eye, Repeat, Search, Star, Wallet, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePortfolio } from "@/components/portfolio-context";
 import { useRefresh, useToast } from "@/components/providers";
 import { Badge, Button, Dialog, Field, Input, Segmented, Spinner } from "@/components/ui";
 import { fmtEur, todayIso } from "@/lib/format";
 import { useI18n } from "@/lib/i18n";
-import type { HistoryPoint, Quote, SearchResult, WatchlistItem } from "@/lib/types";
+import type { AssetClass, HistoryPoint, Quote, SearchResult, WatchlistItem } from "@/lib/types";
 import { postJson } from "@/lib/use-api";
 import { cn } from "@/lib/utils";
+
+interface DcaPlan {
+  id: string;
+  ticker: string;
+  name: string;
+  assetClass: AssetClass;
+  coingeckoId: string | null;
+  amount: number;
+}
 
 const PLATFORMS = [
   "",
@@ -48,6 +57,8 @@ export function QuickAdd() {
   const [highlight, setHighlight] = useState(0);
   const [selected, setSelected] = useState<SearchResult | null>(null);
   const [watchlist, setWatchlist] = useState<WatchlistItem[]>([]);
+  const [dcaPlans, setDcaPlans] = useState<DcaPlan[]>([]);
+  const [savingDca, setSavingDca] = useState(false);
 
   // Form state
   const [side, setSide] = useState<"buy" | "sell">("buy");
@@ -107,14 +118,65 @@ export function QuickAdd() {
     if (open && !selected) setTimeout(() => inputRef.current?.focus(), 30);
   }, [open, selected]);
 
-  // Load the watchlist once per opening, for the instant suggestions.
+  // Load the watchlist + DCA plans once per opening, for instant suggestions.
   useEffect(() => {
     if (!open) return;
     fetch("/api/watchlist", { cache: "no-store" })
       .then(async (res) => (await res.json()) as { items?: WatchlistItem[] })
       .then((body) => setWatchlist(body.items ?? []))
       .catch(() => undefined);
+    fetch("/api/dca", { cache: "no-store" })
+      .then(async (res) => (await res.json()) as { plans?: DcaPlan[] })
+      .then((body) => setDcaPlans(body.plans ?? []))
+      .catch(() => undefined);
   }, [open]);
+
+  const pickDca = (plan: DcaPlan) => {
+    setAmount(String(plan.amount));
+    setSide("buy");
+    setSelected({
+      ticker: plan.ticker,
+      name: plan.name,
+      assetClass: plan.assetClass,
+      exchange: null,
+      coingeckoId: plan.coingeckoId,
+    });
+  };
+
+  const saveDca = async () => {
+    if (!selected) return;
+    const a = num(amount);
+    if (!Number.isFinite(a) || a <= 0) {
+      toast(t("common.error"), "error");
+      return;
+    }
+    setSavingDca(true);
+    try {
+      const body = await postJson<{ plans: DcaPlan[] }>("/api/dca", {
+        ticker: selected.ticker,
+        name: selected.name,
+        assetClass: selected.assetClass,
+        coingeckoId: selected.coingeckoId,
+        amount: a,
+      });
+      setDcaPlans(body.plans);
+      toast(t("qa.dcaSaved"));
+    } catch (e) {
+      toast(e instanceof Error ? e.message : String(e), "error");
+    } finally {
+      setSavingDca(false);
+    }
+  };
+
+  const removeDca = async (id: string) => {
+    try {
+      await fetch(`/api/dca?id=${id}`, { method: "DELETE" });
+      setDcaPlans((p) => p.filter((x) => x.id !== id));
+      toast(t("qa.dcaRemoved"), "info");
+    } catch {
+      // ignore
+    }
+  };
 
   // Debounced search
   useEffect(() => {
@@ -394,6 +456,36 @@ export function QuickAdd() {
               )
             ) : (
               <>
+                {dcaPlans.length ? (
+                  <div className="mb-3">
+                    <p className="flex items-center gap-1.5 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted">
+                      <Repeat className="h-3 w-3" /> {t("qa.dca")}
+                    </p>
+                    <div className="flex flex-wrap gap-1.5 px-2">
+                      {dcaPlans.map((plan) => (
+                        <span
+                          key={plan.id}
+                          className="group flex items-center gap-1.5 rounded-full border border-accent/30 bg-accent-soft py-1 pl-2.5 pr-1.5 text-xs text-accent"
+                        >
+                          <button
+                            onClick={() => pickDca(plan)}
+                            className="cursor-pointer font-medium"
+                          >
+                            <span className="font-mono font-semibold">{plan.ticker}</span>{" "}
+                            {fmtEur(plan.amount)}
+                          </button>
+                          <button
+                            onClick={() => removeDca(plan.id)}
+                            aria-label={t("common.delete")}
+                            className="cursor-pointer rounded-full p-0.5 text-accent/60 transition-colors hover:bg-accent/15 hover:text-accent"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
                 {suggestions.holdings.length ? (
                   <div className="mb-2">
                     <p className="flex items-center gap-1.5 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted">
@@ -510,10 +602,17 @@ export function QuickAdd() {
             </p>
           ) : null}
 
-          <div className="mt-4 flex items-center justify-between gap-2">
-            <Button variant="outline" onClick={addToWatchlist} loading={watchSaving}>
-              <Eye className="h-4 w-4" /> {t("qa.toWatchlist")}
-            </Button>
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Button variant="outline" onClick={addToWatchlist} loading={watchSaving}>
+                <Eye className="h-4 w-4" /> {t("qa.toWatchlist")}
+              </Button>
+              {side === "buy" && num(amount) > 0 ? (
+                <Button variant="ghost" onClick={saveDca} loading={savingDca} className="px-2.5">
+                  <Repeat className="h-4 w-4" /> {t("qa.saveDca")}
+                </Button>
+              ) : null}
+            </div>
             <Button onClick={submitTx} loading={saving}>
               {t("qa.addTx")}
             </Button>

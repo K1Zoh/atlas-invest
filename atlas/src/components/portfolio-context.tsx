@@ -29,6 +29,7 @@ export interface PortfolioPayload {
   };
   triggeredAlerts: { ticker: string; kind: string; threshold: number; currentPrice: number }[];
   errors: string[];
+  quotesAsOf: string | null;
   updatedAt: string;
 }
 
@@ -79,9 +80,8 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
         for (const a of body.triggeredAlerts ?? []) {
           toast(`🔔 ${a.ticker} — ${a.currentPrice.toLocaleString("fr-FR")} €`, "info");
         }
-        for (const e of body.errors ?? []) {
-          toast(e, "error");
-        }
+        // Provider errors are surfaced as a persistent banner on the dashboard
+        // (see data.errors), not as fleeting toasts.
       })
       .catch((e: unknown) => {
         if (controller.signal.aborted) return;

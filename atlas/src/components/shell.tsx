@@ -24,7 +24,13 @@ import { usePortfolio } from "@/components/portfolio-context";
 import { useCurrency, useRefresh } from "@/components/providers";
 import { openQuickAdd, QuickAdd } from "@/components/quick-add";
 import { PctBadge, Skeleton } from "@/components/ui";
-import { DISPLAY_CURRENCIES, fmtEur, type DisplayCurrency } from "@/lib/format";
+import {
+  ageMinutes,
+  DISPLAY_CURRENCIES,
+  fmtEur,
+  fmtRelativeAge,
+  type DisplayCurrency,
+} from "@/lib/format";
 import { useI18n, type TKey } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
@@ -163,6 +169,13 @@ function Topbar() {
   const { data, loading } = usePortfolio();
   const { refresh } = useRefresh();
   const [spinning, setSpinning] = useState(false);
+  const [, setTick] = useState(0);
+
+  // Re-render every 30s so the "mis à jour il y a X min" label stays honest.
+  useEffect(() => {
+    const id = setInterval(() => setTick((n) => n + 1), 30_000);
+    return () => clearInterval(id);
+  }, []);
 
   const doRefresh = () => {
     setSpinning(true);
@@ -170,23 +183,44 @@ function Topbar() {
     setTimeout(() => setSpinning(false), 1200);
   };
 
+  const stale = ageMinutes(data?.quotesAsOf) > 15;
+
   return (
     <header className="sticky top-0 z-20 flex items-center justify-between gap-3 border-b border-border bg-background/75 px-4 py-3 backdrop-blur-xl sm:px-6">
       <div className="flex min-w-0 items-center gap-3">
-        <span className="live-dot hidden h-2 w-2 shrink-0 rounded-full bg-accent sm:block" aria-hidden />
+        <span
+          className={cn(
+            "hidden h-2 w-2 shrink-0 rounded-full sm:block",
+            stale ? "bg-warning" : "live-dot bg-accent",
+          )}
+          aria-hidden
+        />
         <div className="min-w-0">
           <p className="text-[10px] uppercase tracking-wider text-muted">{t("topbar.wealth")}</p>
           {loading && !data ? (
             <Skeleton className="mt-1 h-6 w-32" />
           ) : (
-            <div className="flex items-baseline gap-2.5">
-              <AnimatedNumber
-                value={data?.summary.totalValue ?? 0}
-                format={fmtEur}
-                className="text-lg font-bold leading-tight"
-              />
-              <PctBadge value={data?.summary.dayChangePct ?? null} />
-            </div>
+            <>
+              <div className="flex items-baseline gap-2.5">
+                <AnimatedNumber
+                  value={data?.summary.totalValue ?? 0}
+                  format={fmtEur}
+                  className="text-lg font-bold leading-tight"
+                />
+                <PctBadge value={data?.summary.dayChangePct ?? null} />
+              </div>
+              {data?.quotesAsOf ? (
+                <p
+                  className={cn(
+                    "mt-0.5 text-[10px] leading-none",
+                    stale ? "text-warning" : "text-muted",
+                  )}
+                  title={t("topbar.fxHint")}
+                >
+                  {t("topbar.updatedAgo", { age: fmtRelativeAge(data.quotesAsOf) })}
+                </p>
+              ) : null}
+            </>
           )}
         </div>
       </div>
