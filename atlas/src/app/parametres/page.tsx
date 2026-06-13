@@ -1,12 +1,14 @@
 "use client";
 
-import { Bell, Bot, Database, FileUp, Palette } from "lucide-react";
+import { Bell, Bot, Database, Download, FileSearch, Palette } from "lucide-react";
 import { useTheme } from "next-themes";
 import { useEffect, useRef, useState } from "react";
 import { useRefresh, useToast } from "@/components/providers";
-import { Button, Card, CardHeader, Field, Input, Segmented, Select, Skeleton } from "@/components/ui";
+import { Badge, Button, Card, CardHeader, Field, Input, Segmented, Select, Skeleton } from "@/components/ui";
+import { fmtDate, fmtEur, fmtQty } from "@/lib/format";
 import { useI18n, type Lang } from "@/lib/i18n";
 import { postJson, useApi } from "@/lib/use-api";
+import { cn } from "@/lib/utils";
 
 interface SettingsPayload {
   settings: Record<string, { value: string; set: boolean; secret: boolean }>;
@@ -267,48 +269,263 @@ function NotificationsCard() {
   );
 }
 
-function DataCard() {
+interface PreviewRow {
+  status: "new" | "duplicate" | "ignored";
+  reason?: string;
+  ticker: string;
+  name: string;
+  assetClass: "stock" | "crypto";
+  side: "buy" | "sell";
+  quantity: number;
+  price: number;
+  fees: number;
+  txDate: string;
+  platform: string | null;
+  coingeckoId: string | null;
+  extId: string | null;
+  fingerprint: string;
+}
+
+interface PreviewResult {
+  exchange: string;
+  detected: string;
+  rows: PreviewRow[];
+  counts: { new: number; duplicate: number; ignored: number; total: number };
+  errors: string[];
+}
+
+const EXCHANGE_OPTIONS = [
+  { id: "auto", label: "Détection automatique" },
+  { id: "kraken", label: "Kraken" },
+  { id: "binance", label: "Binance" },
+  { id: "coinbase", label: "Coinbase" },
+  { id: "generic", label: "Modèle Atlas / autre" },
+];
+
+function ImportSection() {
   const { t } = useI18n();
   const { toast } = useToast();
   const { refresh } = useRefresh();
   const fileRef = useRef<HTMLInputElement>(null);
+  const [exchange, setExchange] = useState("auto");
   const [importClass, setImportClass] = useState<"stock" | "crypto">("crypto");
-  const [importing, setImporting] = useState(false);
-  const [migrating, setMigrating] = useState(false);
-  const legacy = useApi<{ available: boolean }>("/api/import/legacy");
+  const [analyzing, setAnalyzing] = useState(false);
+  const [committing, setCommitting] = useState(false);
+  const [preview, setPreview] = useState<PreviewResult | null>(null);
+  const [showAll, setShowAll] = useState(false);
 
-  const runImport = async () => {
+  const analyze = async () => {
     const file = fileRef.current?.files?.[0];
     if (!file) {
       fileRef.current?.click();
       return;
     }
-    setImporting(true);
+    setAnalyzing(true);
+    setPreview(null);
+    setShowAll(false);
     try {
       const form = new FormData();
       form.set("file", file);
+      form.set("exchange", exchange);
       form.set("assetClass", importClass);
-      const res = await fetch("/api/import/csv", { method: "POST", body: form });
-      const body = (await res.json()) as {
-        imported?: number;
-        skipped?: number;
-        errors?: string[];
-        error?: string;
-      };
+      const res = await fetch("/api/import/preview", { method: "POST", body: form });
+      const body = (await res.json()) as PreviewResult & { error?: string };
       if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
-      toast(
-        t("set.import.result", { imported: body.imported ?? 0, skipped: body.skipped ?? 0 }),
-        body.imported ? "success" : "info",
-      );
-      for (const err of (body.errors ?? []).slice(0, 3)) toast(err, "error");
+      setPreview(body);
+      for (const err of (body.errors ?? []).slice(0, 2)) toast(err, "error");
+    } catch (e) {
+      toast(e instanceof Error ? e.message : String(e), "error");
+    } finally {
+      setAnalyzing(false);
+    }
+  };
+
+  const commit = async () => {
+    if (!preview) return;
+    const newRows = preview.rows.filter((r) => r.status === "new");
+    if (!newRows.length) {
+      toast(t("set.import.nothingNew"), "info");
+      return;
+    }
+    setCommitting(true);
+    try {
+      const body = await postJson<{ imported: number; skipped: number }>("/api/import/commit", {
+        rows: newRows,
+      });
+      toast(t("set.import.done", { imported: body.imported }));
+      setPreview(null);
       if (fileRef.current) fileRef.current.value = "";
       refresh();
     } catch (e) {
       toast(e instanceof Error ? e.message : String(e), "error");
     } finally {
-      setImporting(false);
+      setCommitting(false);
     }
   };
+
+  const visibleRows = preview
+    ? showAll
+      ? preview.rows
+      : [
+          ...preview.rows.filter((r) => r.status === "new"),
+          ...preview.rows.filter((r) => r.status !== "new"),
+        ].slice(0, 12)
+    : [];
+
+  return (
+    <div>
+      <p className="text-sm font-medium">{t("set.import.title")}</p>
+      <p className="mt-0.5 text-xs leading-relaxed text-muted">{t("set.import.hint")}</p>
+
+      <div className="mt-3 flex flex-wrap items-end gap-2">
+        <label className="flex flex-col gap-1">
+          <span className="text-[11px] font-medium text-muted">{t("set.import.exchange")}</span>
+          <Select
+            value={exchange}
+            onChange={(e) => setExchange(e.target.value)}
+            className="w-52"
+            aria-label={t("set.import.exchange")}
+          >
+            {EXCHANGE_OPTIONS.map((x) => (
+              <option key={x.id} value={x.id}>
+                {x.label}
+              </option>
+            ))}
+          </Select>
+        </label>
+        {exchange === "generic" ? (
+          <label className="flex flex-col gap-1">
+            <span className="text-[11px] font-medium text-muted">{t("set.import.class")}</span>
+            <Select
+              value={importClass}
+              onChange={(e) => setImportClass(e.target.value as "stock" | "crypto")}
+              className="w-36"
+            >
+              <option value="crypto">{t("common.crypto")}</option>
+              <option value="stock">{t("common.stocks")}</option>
+            </Select>
+          </label>
+        ) : null}
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <input
+          ref={fileRef}
+          type="file"
+          accept=".csv,.zip,text/csv,application/zip"
+          onChange={() => setPreview(null)}
+          aria-label={t("set.import.title")}
+          className="cursor-pointer text-xs text-muted file:mr-3 file:cursor-pointer file:rounded-lg file:border file:border-border file:bg-surface-2 file:px-3 file:py-1.5 file:text-xs file:text-foreground"
+        />
+        <Button variant="outline" onClick={analyze} loading={analyzing}>
+          <FileSearch className="h-4 w-4" /> {t("set.import.analyze")}
+        </Button>
+        <a
+          href="/api/import/template"
+          download
+          className="inline-flex cursor-pointer items-center gap-1.5 rounded-xl px-2 py-1.5 text-xs text-muted transition-colors hover:text-accent"
+        >
+          <Download className="h-3.5 w-3.5" /> {t("set.import.template")}
+        </a>
+      </div>
+
+      {preview ? (
+        <div className="fade-up mt-4 rounded-xl border border-border bg-surface-2/40 p-3">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <p className="text-xs font-medium">
+                {t("set.import.preview", {
+                  new: preview.counts.new,
+                  duplicate: preview.counts.duplicate,
+                  ignored: preview.counts.ignored,
+                })}
+              </p>
+              {preview.exchange !== "generic" ? (
+                <p className="text-[11px] text-muted">
+                  {t("set.import.detected", { exchange: preview.exchange })}
+                </p>
+              ) : null}
+            </div>
+            <Button onClick={commit} loading={committing} disabled={preview.counts.new === 0}>
+              {t("set.import.confirm", { new: preview.counts.new })}
+            </Button>
+          </div>
+
+          {preview.rows.length ? (
+            <div className="max-h-72 overflow-y-auto rounded-lg border border-border/60">
+              <table className="w-full text-xs">
+                <thead className="sticky top-0 bg-surface">
+                  <tr className="text-left text-[10px] uppercase tracking-wider text-muted">
+                    <th className="px-2.5 py-1.5">{t("common.date")}</th>
+                    <th className="px-2.5 py-1.5">{t("pf.asset")}</th>
+                    <th className="px-2.5 py-1.5">{t("tx.side")}</th>
+                    <th className="px-2.5 py-1.5 text-right">{t("common.quantity")}</th>
+                    <th className="px-2.5 py-1.5 text-right">{t("common.price")}</th>
+                    <th className="px-2.5 py-1.5">{t("common.note")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visibleRows.map((r, i) => (
+                    <tr
+                      key={`${r.fingerprint}-${i}`}
+                      className={cn(
+                        "border-t border-border/40",
+                        r.status !== "new" && "opacity-55",
+                      )}
+                    >
+                      <td className="tnum px-2.5 py-1.5 text-muted">{fmtDate(r.txDate)}</td>
+                      <td className="px-2.5 py-1.5">
+                        <span className="font-mono font-semibold">{r.ticker}</span>
+                      </td>
+                      <td className="px-2.5 py-1.5">
+                        <Badge tone={r.side === "buy" ? "accent" : "danger"}>
+                          {r.side === "buy" ? t("common.buy") : t("common.sell")}
+                        </Badge>
+                      </td>
+                      <td className="tnum px-2.5 py-1.5 text-right">{fmtQty(r.quantity)}</td>
+                      <td className="tnum px-2.5 py-1.5 text-right">{fmtEur(r.price)}</td>
+                      <td className="px-2.5 py-1.5">
+                        <ImportStatusBadge status={r.status} reason={r.reason} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+
+          {!showAll && preview.rows.length > visibleRows.length ? (
+            <button
+              onClick={() => setShowAll(true)}
+              className="mt-2 cursor-pointer text-[11px] text-accent hover:underline"
+            >
+              {t("set.import.showMore", { n: preview.rows.length })}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ImportStatusBadge({ status, reason }: { status: string; reason?: string }) {
+  const { t } = useI18n();
+  if (status === "new") return <Badge tone="accent">{t("set.import.status.new")}</Badge>;
+  if (status === "duplicate")
+    return <Badge tone="neutral">{t("set.import.status.duplicate")}</Badge>;
+  return (
+    <span className="text-[11px] text-warning" title={reason}>
+      {t("set.import.status.ignored")}
+    </span>
+  );
+}
+
+function DataCard() {
+  const { t } = useI18n();
+  const { toast } = useToast();
+  const { refresh } = useRefresh();
+  const [migrating, setMigrating] = useState(false);
+  const legacy = useApi<{ available: boolean }>("/api/import/legacy");
 
   const runMigration = async () => {
     setMigrating(true);
@@ -347,31 +564,7 @@ function DataCard() {
         }
       />
       <div className="flex flex-col gap-6 px-5 pt-4">
-        <div>
-          <p className="text-sm font-medium">{t("set.import.title")}</p>
-          <p className="mt-0.5 text-xs text-muted">{t("set.import.hint")}</p>
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            <input
-              ref={fileRef}
-              type="file"
-              accept=".csv,text/csv"
-              aria-label={t("set.import.title")}
-              className="cursor-pointer text-xs text-muted file:mr-3 file:cursor-pointer file:rounded-lg file:border file:border-border file:bg-surface-2 file:px-3 file:py-1.5 file:text-xs file:text-foreground"
-            />
-            <Select
-              value={importClass}
-              onChange={(e) => setImportClass(e.target.value as "stock" | "crypto")}
-              className="w-40"
-              aria-label={t("set.import.class")}
-            >
-              <option value="crypto">{t("common.crypto")}</option>
-              <option value="stock">{t("common.stocks")}</option>
-            </Select>
-            <Button onClick={runImport} loading={importing}>
-              <FileUp className="h-4 w-4" /> {t("set.import.run")}
-            </Button>
-          </div>
-        </div>
+        <ImportSection />
 
         <div className="border-t border-border/60 pt-5">
           <p className="text-sm font-medium">{t("set.legacy.title")}</p>

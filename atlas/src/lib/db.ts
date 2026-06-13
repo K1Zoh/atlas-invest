@@ -105,12 +105,24 @@ CREATE TABLE IF NOT EXISTS history_cache (
 );
 `;
 
+/** Idempotent migrations applied after the base schema. */
+function migrate(db: Database.Database): void {
+  // ext_id: source-of-truth identifier from an exchange export (e.g. a Kraken
+  // txid), used to dedupe re-imports precisely instead of guessing by value.
+  const cols = db.prepare("PRAGMA table_info(transactions)").all() as { name: string }[];
+  if (!cols.some((c) => c.name === "ext_id")) {
+    db.exec("ALTER TABLE transactions ADD COLUMN ext_id TEXT");
+  }
+  db.exec("CREATE INDEX IF NOT EXISTS idx_tx_ext ON transactions (ext_id)");
+}
+
 function createDb(): Database.Database {
   fs.mkdirSync(DATA_DIR, { recursive: true });
   const db = new Database(DB_PATH);
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
   db.exec(SCHEMA);
+  migrate(db);
   return db;
 }
 

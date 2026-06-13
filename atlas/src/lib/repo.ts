@@ -59,14 +59,15 @@ export interface NewTransaction {
   platform?: string | null;
   coingeckoId?: string | null;
   note?: string | null;
+  extId?: string | null;
 }
 
 export function addTransaction(tx: NewTransaction): number {
   const db = getDb();
   const res = db
     .prepare(
-      `INSERT INTO transactions (ticker, name, asset_class, side, quantity, price, fees, tx_date, platform, coingecko_id, note)
-       VALUES (@ticker, @name, @assetClass, @side, @quantity, @price, @fees, @txDate, @platform, @coingeckoId, @note)`,
+      `INSERT INTO transactions (ticker, name, asset_class, side, quantity, price, fees, tx_date, platform, coingecko_id, note, ext_id)
+       VALUES (@ticker, @name, @assetClass, @side, @quantity, @price, @fees, @txDate, @platform, @coingeckoId, @note, @extId)`,
     )
     .run({
       ...tx,
@@ -75,8 +76,50 @@ export function addTransaction(tx: NewTransaction): number {
       platform: tx.platform ?? null,
       coingeckoId: tx.coingeckoId ?? null,
       note: tx.note ?? null,
+      extId: tx.extId ?? null,
     });
   return Number(res.lastInsertRowid);
+}
+
+/** Insert many transactions in one transaction (used by CSV/exchange import). */
+export function addTransactions(txs: NewTransaction[]): number {
+  const db = getDb();
+  const insert = db.prepare(
+    `INSERT INTO transactions (ticker, name, asset_class, side, quantity, price, fees, tx_date, platform, coingecko_id, note, ext_id)
+     VALUES (@ticker, @name, @assetClass, @side, @quantity, @price, @fees, @txDate, @platform, @coingeckoId, @note, @extId)`,
+  );
+  const run = db.transaction((rows: NewTransaction[]) => {
+    for (const tx of rows) {
+      insert.run({
+        ...tx,
+        ticker: tx.ticker.toUpperCase().trim(),
+        fees: tx.fees ?? 0,
+        platform: tx.platform ?? null,
+        coingeckoId: tx.coingeckoId ?? null,
+        note: tx.note ?? null,
+        extId: tx.extId ?? null,
+      });
+    }
+  });
+  run(txs);
+  return txs.length;
+}
+
+/** Set of source identifiers already imported, for precise dedupe. */
+export function existingExtIds(): Set<string> {
+  const rows = getDb()
+    .prepare("SELECT ext_id FROM transactions WHERE ext_id IS NOT NULL")
+    .all() as { ext_id: string }[];
+  return new Set(rows.map((r) => r.ext_id));
+}
+
+/** Value-based fingerprints for rows that have no source id (manual CSV). */
+export function existingFingerprints(): Set<string> {
+  return new Set(
+    listTransactions().map(
+      (t) => `${t.ticker}|${t.txDate}|${t.quantity.toFixed(8)}|${t.price.toFixed(6)}`,
+    ),
+  );
 }
 
 export function updateTransaction(id: number, tx: Partial<NewTransaction>): void {

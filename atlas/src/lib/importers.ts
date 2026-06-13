@@ -1,17 +1,76 @@
+import { parseKrakenPair } from "./import/kraken";
+import { extractCsvFromZip, looksLikeZip } from "./import/zip";
 import { resolveCoingeckoId } from "./market/coingecko";
-import { addTransaction, listTransactions } from "./repo";
-import type { AssetClass } from "./types";
+import {
+  addTransactions,
+  existingExtIds,
+  existingFingerprints,
+  type NewTransaction,
+} from "./repo";
+import type { AssetClass, TxSide } from "./types";
 
-const MAX_FILE_BYTES = 5 * 1024 * 1024;
+const MAX_FILE_BYTES = 8 * 1024 * 1024;
 
-export interface ImportReport {
-  imported: number;
-  skipped: number;
-  errors: string[];
-  format: string;
+export type ExchangeId = "auto" | "kraken" | "binance" | "coinbase" | "generic";
+
+export const EXCHANGES: { id: ExchangeId; label: string }[] = [
+  { id: "auto", label: "Détection automatique" },
+  { id: "kraken", label: "Kraken" },
+  { id: "binance", label: "Binance" },
+  { id: "coinbase", label: "Coinbase" },
+  { id: "generic", label: "Modèle Atlas / autre" },
+];
+
+export type RowStatus = "new" | "duplicate" | "ignored";
+
+export interface ParsedRow {
+  status: RowStatus;
+  reason?: string;
+  ticker: string;
+  name: string;
+  assetClass: AssetClass;
+  side: TxSide;
+  quantity: number;
+  price: number;
+  fees: number;
+  txDate: string;
+  platform: string | null;
+  coingeckoId: string | null;
+  extId: string | null;
+  fingerprint: string;
 }
 
-/** Minimal CSV parser with quoted-field support. */
+export interface PreviewResult {
+  exchange: ExchangeId;
+  detected: ExchangeId;
+  rows: ParsedRow[];
+  counts: { new: number; duplicate: number; ignored: number; total: number };
+  errors: string[];
+}
+
+/** A row extracted from a file before dedup status is assigned. */
+interface ExtractedRow {
+  ticker: string;
+  name: string;
+  assetClass: AssetClass;
+  side: TxSide;
+  quantity: number;
+  price: number;
+  fees: number;
+  txDate: string;
+  platform: string | null;
+  coingeckoId: string | null;
+  extId: string | null;
+  ignored?: string;
+}
+
+interface ExtractResult {
+  rows: ExtractedRow[];
+  errors: string[];
+}
+
+// ── CSV parsing ──────────────────────────────────────────────────────────────
+
 function parseCsv(text: string): string[][] {
   const rows: string[][] = [];
   let row: string[] = [];
@@ -50,218 +109,152 @@ function parseCsv(text: string): string[][] {
   return rows;
 }
 
-const COL_ALIASES: Record<string, string[]> = {
-  ticker: ["ticker", "symbol", "asset", "coin", "currency name", "actif"],
-  date: ["date", "date(utc)", "tx_date", "time", "timestamp", "date utc"],
-  quantity: ["quantity", "qty", "executed", "amount", "quantity transacted", "quantité"],
-  price: [
-    "price",
-    "prix",
-    "price per share",
-    "unit price",
-    "spot price at transaction",
-    "prix unitaire",
-  ],
-  fees: ["fees", "fee", "frais", "commission"],
-  side: ["side", "type", "transaction type", "sens"],
-};
-
-function resolveCol(header: string[], field: string): number {
-  const lower = header.map((h) => h.trim().toLowerCase());
-  for (const alias of COL_ALIASES[field] ?? []) {
-    const idx = lower.indexOf(alias);
-    if (idx !== -1) return idx;
-  }
-  return -1;
+function num(raw: string): number {
+  return parseFloat(
+    (raw ?? "")
+      .replace(/[€$£\s]/g, "")
+      .replace(/[A-Za-z]+$/, "")
+      .replace(",", "."),
+  );
 }
 
-function parseNumber(raw: string): number {
-  const cleaned = raw
-    .replace(/[€$]/g, "")
-    .replace(/\s/g, "")
-    .replace(/[A-Za-z]+$/, "") // Binance "0.5BTC" style suffixes
-    .replace(",", ".");
-  return parseFloat(cleaned);
-}
-
-function parseDate(raw: string): string | null {
-  const d = new Date(raw.trim());
+function isoDate(raw: string): string | null {
+  const s = (raw ?? "").trim();
+  if (!s) return null;
+  const d = new Date(s.replace(" ", "T"));
   if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0, 10);
-  // dd/mm/yyyy
-  const m = raw.trim().match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+  const m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
   if (m) return `${m[3]}-${m[2]}-${m[1]}`;
   return null;
 }
 
 const QUOTE_SUFFIXES = ["USDT", "USDC", "BUSD", "EUR", "USD", "BTC", "ETH", "BNB"];
-
-function stripQuote(pair: string): string | null {
+function stripQuote(pair: string): { base: string; quote: string } | null {
   const p = pair.toUpperCase().trim();
   for (const q of QUOTE_SUFFIXES) {
-    if (p.endsWith(q) && p.length > q.length) return p.slice(0, -q.length);
+    if (p.endsWith(q) && p.length > q.length) return { base: p.slice(0, -q.length), quote: q };
   }
   return null;
 }
 
-function existingKeys(): Set<string> {
-  return new Set(
-    listTransactions().map(
-      (t) => `${t.ticker}|${t.txDate}|${t.quantity.toFixed(8)}|${t.price.toFixed(6)}`,
-    ),
-  );
+// ── Header helpers ───────────────────────────────────────────────────────────
+
+function lowerHeader(rows: string[][]): string[] {
+  return rows[0].map((h) => h.trim().toLowerCase());
 }
 
-export function importCsv(raw: Buffer, assetClass: AssetClass): ImportReport {
-  if (raw.length > MAX_FILE_BYTES) {
-    return { imported: 0, skipped: 0, errors: ["Fichier trop volumineux (max 5 Mo)."], format: "?" };
-  }
-  const rows = parseCsv(raw.toString("utf-8"));
-  if (rows.length < 2) {
-    return { imported: 0, skipped: 0, errors: ["CSV vide ou illisible."], format: "?" };
-  }
-  const header = rows[0].map((h) => h.trim().toLowerCase());
-  const headerSet = new Set(header);
-
-  if (["pair", "side", "executed"].every((c) => headerSet.has(c))) {
-    return importBinance(rows);
-  }
-  if (headerSet.has("transaction type") && headerSet.has("quantity transacted")) {
-    return importCoinbase(rows);
-  }
-  return importGeneric(rows, assetClass);
+function detectExchange(rows: string[][]): ExchangeId {
+  const h = new Set(lowerHeader(rows));
+  if (h.has("txid") && h.has("pair") && h.has("vol") && h.has("ordertxid")) return "kraken";
+  if (h.has("pair") && h.has("executed") && (h.has("side") || h.has("type"))) return "binance";
+  if (h.has("transaction type") && h.has("quantity transacted")) return "coinbase";
+  return "generic";
 }
 
-function importGeneric(rows: string[][], assetClass: AssetClass): ImportReport {
-  const header = rows[0];
-  const report: ImportReport = { imported: 0, skipped: 0, errors: [], format: "generic" };
+// ── Kraken ───────────────────────────────────────────────────────────────────
 
-  const iTicker = resolveCol(header, "ticker");
-  const iDate = resolveCol(header, "date");
-  const iQty = resolveCol(header, "quantity");
-  const iPrice = resolveCol(header, "price");
-  const iFees = resolveCol(header, "fees");
-  const iSide = resolveCol(header, "side");
+function extractKraken(rows: string[][]): ExtractResult {
+  const header = lowerHeader(rows);
+  const idx = (n: string) => header.indexOf(n);
+  const iTxid = idx("txid");
+  const iPair = idx("pair");
+  const iTime = idx("time");
+  const iType = idx("type");
+  const iPrice = idx("price");
+  const iVol = idx("vol");
+  const iFee = idx("fee");
+  const errors: string[] = [];
+  const out: ExtractedRow[] = [];
 
-  const missing = [
-    ["Ticker/Symbol", iTicker],
-    ["Date", iDate],
-    ["Quantity", iQty],
-    ["Price", iPrice],
-  ]
-    .filter(([, idx]) => idx === -1)
-    .map(([name]) => name as string);
-  if (missing.length) {
-    report.errors.push(
-      `Colonnes manquantes : ${missing.join(", ")}. Colonnes trouvées : ${header.join(", ")}`,
-    );
-    report.skipped = rows.length - 1;
-    return report;
-  }
-
-  const seen = existingKeys();
   for (const row of rows.slice(1)) {
-    const ticker = (row[iTicker] ?? "").trim().toUpperCase();
-    if (!ticker || !/^[A-Z0-9.\-^]{1,12}$/.test(ticker)) {
-      report.skipped++;
-      continue;
-    }
-    const date = parseDate(row[iDate] ?? "");
-    const qty = parseNumber(row[iQty] ?? "");
-    const price = parseNumber(row[iPrice] ?? "");
-    const fees = iFees !== -1 ? parseNumber(row[iFees] ?? "0") || 0 : 0;
-    const sideRaw = iSide !== -1 ? (row[iSide] ?? "").toUpperCase() : "BUY";
-    const side = sideRaw.includes("SELL") || sideRaw.includes("VENTE") ? "sell" : "buy";
+    const txid = (row[iTxid] ?? "").trim();
+    const pairRaw = (row[iPair] ?? "").trim();
+    const parsed = parseKrakenPair(pairRaw);
+    const date = isoDate(row[iTime] ?? "");
+    const sideRaw = (row[iType] ?? "").trim().toLowerCase();
+    const side: TxSide = sideRaw === "sell" ? "sell" : "buy";
+    const price = num(row[iPrice] ?? "");
+    const qty = num(row[iVol] ?? "");
+    const fee = iFee !== -1 ? num(row[iFee] ?? "0") || 0 : 0;
 
-    if (!date || !Number.isFinite(qty) || qty <= 0 || !Number.isFinite(price) || price <= 0) {
-      report.skipped++;
-      continue;
+    if (!parsed || !date || !Number.isFinite(qty) || qty <= 0 || !Number.isFinite(price) || price <= 0) {
+      continue; // unparseable line, silently skipped
     }
-    const key = `${ticker}|${date}|${qty.toFixed(8)}|${price.toFixed(6)}`;
-    if (seen.has(key)) {
-      report.skipped++;
-      continue;
-    }
-    addTransaction({
-      ticker,
-      name: ticker,
-      assetClass,
+    const base: ExtractedRow = {
+      ticker: parsed.base,
+      name: parsed.base,
+      assetClass: "crypto",
       side,
       quantity: qty,
       price,
-      fees,
+      fees: fee,
       txDate: date,
-      coingeckoId: assetClass === "crypto" ? resolveCoingeckoId(ticker) : null,
-      note: "Import CSV",
-    });
-    seen.add(key);
-    report.imported++;
+      platform: "Kraken",
+      coingeckoId: resolveCoingeckoId(parsed.base),
+      extId: txid ? `kraken:${txid}` : null,
+    };
+    if (parsed.quote !== "EUR") {
+      out.push({ ...base, ignored: `Paire ${parsed.base}/${parsed.quote} — seules les paires en EUR sont importées` });
+    } else {
+      out.push(base);
+    }
   }
-  return report;
+  if (!out.length) {
+    errors.push("Aucune transaction trouvée. Sur Kraken, exporte « History → Export → Trades » sur toute la période (les achats « Instant Buy » sont dans l'export « Ledgers »).");
+  }
+  return { rows: out, errors };
 }
 
-function importBinance(rows: string[][]): ImportReport {
-  const header = rows[0].map((h) => h.trim().toLowerCase());
-  const report: ImportReport = { imported: 0, skipped: 0, errors: [], format: "binance" };
-  const idx = (name: string) => header.indexOf(name);
-  const iDate = idx("date(utc)") !== -1 ? idx("date(utc)") : idx("date");
-  const [iPair, iSide, iPrice, iExec, iFee] = [
-    idx("pair"),
-    idx("side"),
-    idx("price"),
-    idx("executed"),
-    idx("fee"),
-  ];
+// ── Binance ──────────────────────────────────────────────────────────────────
 
-  const seen = existingKeys();
+function extractBinance(rows: string[][]): ExtractResult {
+  const header = lowerHeader(rows);
+  const idx = (n: string) => header.indexOf(n);
+  const iDate = idx("date(utc)") !== -1 ? idx("date(utc)") : idx("date");
+  const iPair = idx("pair");
+  const iSide = idx("side") !== -1 ? idx("side") : idx("type");
+  const iPrice = idx("price");
+  const iExec = idx("executed");
+  const iFee = idx("fee");
+  const out: ExtractedRow[] = [];
+
   for (const row of rows.slice(1)) {
     const pair = (row[iPair] ?? "").trim();
     const sideRaw = (row[iSide] ?? "").trim().toUpperCase();
-    if (sideRaw !== "BUY" && sideRaw !== "SELL") {
-      report.skipped++;
-      continue;
-    }
-    if (!pair.toUpperCase().endsWith("EUR")) {
-      report.errors.push(`Ignoré ${pair} — seules les paires EUR sont importées automatiquement.`);
-      report.skipped++;
-      continue;
-    }
-    const ticker = stripQuote(pair);
-    const date = parseDate(row[iDate] ?? "");
-    const price = parseNumber(row[iPrice] ?? "");
-    const qty = parseNumber(row[iExec] ?? "");
-    const fee = iFee !== -1 ? parseNumber(row[iFee] ?? "0") || 0 : 0;
-    if (!ticker || !date || !Number.isFinite(qty) || qty <= 0 || !Number.isFinite(price) || price <= 0) {
-      report.skipped++;
-      continue;
-    }
-    const key = `${ticker}|${date}|${qty.toFixed(8)}|${price.toFixed(6)}`;
-    if (seen.has(key)) {
-      report.skipped++;
-      continue;
-    }
-    addTransaction({
-      ticker,
-      name: ticker,
+    if (sideRaw !== "BUY" && sideRaw !== "SELL") continue;
+    const parsed = stripQuote(pair);
+    const date = isoDate(row[iDate] ?? "");
+    const price = num(row[iPrice] ?? "");
+    const qty = num(row[iExec] ?? "");
+    const fee = iFee !== -1 ? num(row[iFee] ?? "0") || 0 : 0;
+    if (!parsed || !date || !Number.isFinite(qty) || qty <= 0 || !Number.isFinite(price) || price <= 0) continue;
+    const base: ExtractedRow = {
+      ticker: parsed.base,
+      name: parsed.base,
       assetClass: "crypto",
-      side: sideRaw === "BUY" ? "buy" : "sell",
+      side: sideRaw === "SELL" ? "sell" : "buy",
       quantity: qty,
       price,
       fees: fee,
       txDate: date,
       platform: "Binance",
-      coingeckoId: resolveCoingeckoId(ticker),
-      note: "Import Binance",
-    });
-    seen.add(key);
-    report.imported++;
+      coingeckoId: resolveCoingeckoId(parsed.base),
+      extId: null,
+    };
+    if (parsed.quote !== "EUR") {
+      out.push({ ...base, ignored: `Paire ${parsed.base}/${parsed.quote} — seules les paires en EUR sont importées` });
+    } else {
+      out.push(base);
+    }
   }
-  return report;
+  return { rows: out, errors: [] };
 }
 
-function importCoinbase(rows: string[][]): ImportReport {
-  const header = rows[0].map((h) => h.trim().toLowerCase());
-  const report: ImportReport = { imported: 0, skipped: 0, errors: [], format: "coinbase" };
-  const idx = (name: string) => header.indexOf(name);
+// ── Coinbase ─────────────────────────────────────────────────────────────────
+
+function extractCoinbase(rows: string[][]): ExtractResult {
+  const header = lowerHeader(rows);
+  const idx = (n: string) => header.indexOf(n);
   const iDate = idx("timestamp") !== -1 ? idx("timestamp") : idx("date");
   const iType = idx("transaction type");
   const iAsset = idx("asset");
@@ -269,36 +262,21 @@ function importCoinbase(rows: string[][]): ImportReport {
   const iSpot = idx("spot price at transaction");
   const iSpotCur = idx("spot price currency");
   const iFees = idx("fees") !== -1 ? idx("fees") : idx("fees and/or spread");
+  const out: ExtractedRow[] = [];
 
-  const seen = existingKeys();
   for (const row of rows.slice(1)) {
     const typeRaw = (row[iType] ?? "").trim().toUpperCase();
     const isBuy = typeRaw.includes("BUY") || typeRaw.includes("RECEIVE");
     const isSell = typeRaw.includes("SELL") || typeRaw.includes("CONVERT");
-    if (!isBuy && !isSell) {
-      report.skipped++;
-      continue;
-    }
-    if (iSpotCur !== -1 && (row[iSpotCur] ?? "").trim().toUpperCase() !== "EUR") {
-      report.errors.push(`Ignoré ${row[iAsset]} — seules les lignes en EUR sont importées.`);
-      report.skipped++;
-      continue;
-    }
+    if (!isBuy && !isSell) continue;
     const ticker = (row[iAsset] ?? "").trim().toUpperCase();
-    const date = parseDate(row[iDate] ?? "");
-    const qty = parseNumber(row[iQty] ?? "");
-    const price = parseNumber(row[iSpot] ?? "");
-    const fees = iFees !== -1 ? parseNumber(row[iFees] ?? "0") || 0 : 0;
-    if (!ticker || !date || !Number.isFinite(qty) || qty <= 0 || !Number.isFinite(price) || price <= 0) {
-      report.skipped++;
-      continue;
-    }
-    const key = `${ticker}|${date}|${qty.toFixed(8)}|${price.toFixed(6)}`;
-    if (seen.has(key)) {
-      report.skipped++;
-      continue;
-    }
-    addTransaction({
+    const date = isoDate(row[iDate] ?? "");
+    const qty = num(row[iQty] ?? "");
+    const price = num(row[iSpot] ?? "");
+    const fees = iFees !== -1 ? num(row[iFees] ?? "0") || 0 : 0;
+    if (!ticker || !date || !Number.isFinite(qty) || qty <= 0 || !Number.isFinite(price) || price <= 0) continue;
+    const cur = iSpotCur !== -1 ? (row[iSpotCur] ?? "").trim().toUpperCase() : "EUR";
+    const base: ExtractedRow = {
       ticker,
       name: ticker,
       assetClass: "crypto",
@@ -309,10 +287,240 @@ function importCoinbase(rows: string[][]): ImportReport {
       txDate: date,
       platform: "Coinbase",
       coingeckoId: resolveCoingeckoId(ticker),
-      note: "Import Coinbase",
-    });
-    seen.add(key);
-    report.imported++;
+      extId: null,
+    };
+    if (cur !== "EUR") {
+      out.push({ ...base, ignored: `Prix en ${cur} — seules les lignes en EUR sont importées` });
+    } else {
+      out.push(base);
+    }
   }
-  return report;
+  return { rows: out, errors: [] };
+}
+
+// ── Generic / Atlas template ─────────────────────────────────────────────────
+
+const COL_ALIASES: Record<string, string[]> = {
+  ticker: ["ticker", "symbol", "asset", "coin", "actif"],
+  name: ["name", "nom"],
+  assetClass: ["asset_class", "class", "classe", "type_actif"],
+  date: ["date", "date(utc)", "tx_date", "time", "timestamp"],
+  quantity: ["quantity", "qty", "executed", "amount", "quantité", "volume", "vol"],
+  price: ["price", "prix", "price per share", "unit price", "prix unitaire", "cours"],
+  fees: ["fees", "fee", "frais", "commission"],
+  side: ["side", "type", "sens"],
+  platform: ["platform", "plateforme", "exchange", "broker", "courtier"],
+};
+
+function resolveCol(header: string[], field: string): number {
+  for (const alias of COL_ALIASES[field] ?? []) {
+    const i = header.indexOf(alias);
+    if (i !== -1) return i;
+  }
+  return -1;
+}
+
+function extractGeneric(rows: string[][], assetClass: AssetClass): ExtractResult {
+  const header = lowerHeader(rows);
+  const iTicker = resolveCol(header, "ticker");
+  const iName = resolveCol(header, "name");
+  const iClass = resolveCol(header, "assetClass");
+  const iDate = resolveCol(header, "date");
+  const iQty = resolveCol(header, "quantity");
+  const iPrice = resolveCol(header, "price");
+  const iFees = resolveCol(header, "fees");
+  const iSide = resolveCol(header, "side");
+  const iPlatform = resolveCol(header, "platform");
+
+  const missing = [
+    ["Ticker", iTicker],
+    ["Date", iDate],
+    ["Quantité", iQty],
+    ["Prix", iPrice],
+  ]
+    .filter(([, i]) => i === -1)
+    .map(([n]) => n as string);
+  if (missing.length) {
+    return {
+      rows: [],
+      errors: [
+        `Colonnes manquantes : ${missing.join(", ")}. Colonnes trouvées : ${header.join(", ")}. Télécharge le modèle pour le bon format.`,
+      ],
+    };
+  }
+
+  const out: ExtractedRow[] = [];
+  for (const row of rows.slice(1)) {
+    const ticker = (row[iTicker] ?? "").trim().toUpperCase();
+    if (!ticker || !/^[A-Z0-9.\-^]{1,12}$/.test(ticker)) continue;
+    const date = isoDate(row[iDate] ?? "");
+    const qty = num(row[iQty] ?? "");
+    const price = num(row[iPrice] ?? "");
+    const fees = iFees !== -1 ? num(row[iFees] ?? "0") || 0 : 0;
+    const sideRaw = iSide !== -1 ? (row[iSide] ?? "").toUpperCase() : "BUY";
+    const side: TxSide = sideRaw.includes("SELL") || sideRaw.includes("VENTE") ? "sell" : "buy";
+    if (!date || !Number.isFinite(qty) || qty <= 0 || !Number.isFinite(price) || price <= 0) continue;
+
+    const rowClassRaw = iClass !== -1 ? (row[iClass] ?? "").trim().toLowerCase() : "";
+    const cls: AssetClass =
+      rowClassRaw.startsWith("crypto") ? "crypto" : rowClassRaw.startsWith("stock") || rowClassRaw.startsWith("action") ? "stock" : assetClass;
+
+    out.push({
+      ticker,
+      name: (iName !== -1 ? row[iName]?.trim() : "") || ticker,
+      assetClass: cls,
+      side,
+      quantity: qty,
+      price,
+      fees,
+      txDate: date,
+      platform: iPlatform !== -1 ? row[iPlatform]?.trim() || null : null,
+      coingeckoId: cls === "crypto" ? resolveCoingeckoId(ticker) : null,
+      extId: null,
+    });
+  }
+  return { rows: out, errors: [] };
+}
+
+// ── Public API ───────────────────────────────────────────────────────────────
+
+function fingerprint(r: { ticker: string; txDate: string; quantity: number; price: number; side: TxSide }): string {
+  return `${r.ticker}|${r.txDate}|${r.side}|${r.quantity.toFixed(8)}|${r.price.toFixed(6)}`;
+}
+
+function decodeFile(raw: Buffer): { text: string; error?: string } {
+  if (raw.length > MAX_FILE_BYTES) return { text: "", error: "Fichier trop volumineux (max 8 Mo)." };
+  if (looksLikeZip(raw)) {
+    const entry = extractCsvFromZip(raw);
+    if (!entry) return { text: "", error: "Aucun CSV trouvé dans l'archive ZIP." };
+    return { text: entry.content };
+  }
+  return { text: raw.toString("utf-8") };
+}
+
+/** Parse a file into a preview (no DB writes), assigning a dedup status per row. */
+export function previewImport(
+  raw: Buffer,
+  opts: { exchange: ExchangeId; assetClass: AssetClass },
+): PreviewResult {
+  const { text, error } = decodeFile(raw);
+  if (error) {
+    return { exchange: opts.exchange, detected: "generic", rows: [], counts: zero(), errors: [error] };
+  }
+  const csvRows = parseCsv(text);
+  if (csvRows.length < 2) {
+    return {
+      exchange: opts.exchange,
+      detected: "generic",
+      rows: [],
+      counts: zero(),
+      errors: ["CSV vide ou illisible (aucune ligne de données)."],
+    };
+  }
+
+  const detected = detectExchange(csvRows);
+  const exchange = opts.exchange === "auto" ? detected : opts.exchange;
+
+  let extracted: ExtractResult;
+  switch (exchange) {
+    case "kraken":
+      extracted = extractKraken(csvRows);
+      break;
+    case "binance":
+      extracted = extractBinance(csvRows);
+      break;
+    case "coinbase":
+      extracted = extractCoinbase(csvRows);
+      break;
+    default:
+      extracted = extractGeneric(csvRows, opts.assetClass);
+  }
+
+  const knownExtIds = existingExtIds();
+  const knownFps = existingFingerprints();
+  const seenExtIds = new Set<string>();
+  const seenFps = new Set<string>();
+
+  const rows: ParsedRow[] = extracted.rows.map((r) => {
+    const fp = fingerprint(r);
+    let status: RowStatus;
+    let reason = r.ignored;
+    if (r.ignored) {
+      status = "ignored";
+    } else if (
+      (r.extId && (knownExtIds.has(r.extId) || seenExtIds.has(r.extId))) ||
+      knownFps.has(fp) ||
+      seenFps.has(fp)
+    ) {
+      status = "duplicate";
+      reason = "Déjà importée";
+    } else {
+      status = "new";
+      if (r.extId) seenExtIds.add(r.extId);
+      seenFps.add(fp);
+    }
+    return { ...r, status, reason, fingerprint: fp };
+  });
+
+  const counts = {
+    new: rows.filter((r) => r.status === "new").length,
+    duplicate: rows.filter((r) => r.status === "duplicate").length,
+    ignored: rows.filter((r) => r.status === "ignored").length,
+    total: rows.length,
+  };
+
+  return { exchange, detected, rows, counts, errors: extracted.errors };
+}
+
+/** Insert the confirmed "new" rows, re-checking dedup as a safety net. */
+export function commitImport(rows: ParsedRow[]): { imported: number; skipped: number } {
+  const knownExtIds = existingExtIds();
+  const knownFps = existingFingerprints();
+  const toInsert: NewTransaction[] = [];
+  let skipped = 0;
+
+  for (const r of rows) {
+    if (r.status !== "new") {
+      skipped++;
+      continue;
+    }
+    const fp = fingerprint(r);
+    if ((r.extId && knownExtIds.has(r.extId)) || knownFps.has(fp)) {
+      skipped++;
+      continue;
+    }
+    knownFps.add(fp);
+    if (r.extId) knownExtIds.add(r.extId);
+    toInsert.push({
+      ticker: r.ticker,
+      name: r.name,
+      assetClass: r.assetClass,
+      side: r.side,
+      quantity: r.quantity,
+      price: r.price,
+      fees: r.fees,
+      txDate: r.txDate,
+      platform: r.platform,
+      coingeckoId: r.coingeckoId,
+      note: r.platform ? `Import ${r.platform}` : "Import CSV",
+      extId: r.extId,
+    });
+  }
+  addTransactions(toInsert);
+  return { imported: toInsert.length, skipped };
+}
+
+/** Downloadable canonical template the user can fill for any exchange. */
+export function buildTemplate(): string {
+  return [
+    "ticker,name,asset_class,side,quantity,price,fees,date,platform",
+    "BTC,Bitcoin,crypto,buy,0.05,42000,1.5,2024-01-15,Kraken",
+    "ETH,Ethereum,crypto,buy,1.2,2300,0.9,2024-02-03,Binance",
+    "CW8,Amundi MSCI World,stock,buy,3,480.25,0,2024-03-10,Trade Republic",
+    "SOL,Solana,crypto,sell,5,150,0.5,2024-04-22,Kraken",
+  ].join("\n");
+}
+
+function zero() {
+  return { new: 0, duplicate: 0, ignored: 0, total: 0 };
 }
