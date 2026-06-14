@@ -1,4 +1,4 @@
-import { parseKrakenPair } from "./import/kraken";
+import { FIAT, normalizeKrakenAsset, parseKrakenPair } from "./import/kraken";
 import { extractCsvFromZip, looksLikeZip } from "./import/zip";
 import { resolveCoingeckoId } from "./market/coingecko";
 import {
@@ -11,11 +11,12 @@ import type { AssetClass, TxSide } from "./types";
 
 const MAX_FILE_BYTES = 8 * 1024 * 1024;
 
-export type ExchangeId = "auto" | "kraken" | "binance" | "coinbase" | "generic";
+export type ExchangeId = "auto" | "kraken" | "revolut" | "binance" | "coinbase" | "generic";
 
 export const EXCHANGES: { id: ExchangeId; label: string }[] = [
   { id: "auto", label: "Détection automatique" },
   { id: "kraken", label: "Kraken" },
+  { id: "revolut", label: "Revolut (bourse)" },
   { id: "binance", label: "Binance" },
   { id: "coinbase", label: "Coinbase" },
   { id: "generic", label: "Modèle Atlas / autre" },
@@ -118,6 +119,12 @@ function num(raw: string): number {
   );
 }
 
+/** Extract a number from a string with any currency prefix/suffix ("USD 188.60", "EUR 20"). */
+function numLoose(raw: string): number {
+  const cleaned = (raw ?? "").replace(/[^0-9.,-]/g, "").replace(",", ".");
+  return parseFloat(cleaned);
+}
+
 function isoDate(raw: string): string | null {
   const s = (raw ?? "").trim();
   if (!s) return null;
@@ -145,10 +152,20 @@ function lowerHeader(rows: string[][]): string[] {
 
 function detectExchange(rows: string[][]): ExchangeId {
   const h = new Set(lowerHeader(rows));
+  // Kraken trades export or ledgers export (Instant Buy lives in ledgers).
   if (h.has("txid") && h.has("pair") && h.has("vol") && h.has("ordertxid")) return "kraken";
+  if (h.has("refid") && h.has("asset") && h.has("amount") && h.has("type") && h.has("balance"))
+    return "kraken";
+  if (h.has("ticker") && h.has("price per share") && h.has("total amount")) return "revolut";
   if (h.has("pair") && h.has("executed") && (h.has("side") || h.has("type"))) return "binance";
   if (h.has("transaction type") && h.has("quantity transacted")) return "coinbase";
   return "generic";
+}
+
+/** Kraken ledgers export has a refid column; trades export has pair/vol. */
+function isKrakenLedgers(rows: string[][]): boolean {
+  const h = new Set(lowerHeader(rows));
+  return h.has("refid") && h.has("asset") && h.has("balance") && !h.has("pair");
 }
 
 // ── Kraken ───────────────────────────────────────────────────────────────────
@@ -203,6 +220,229 @@ function extractKraken(rows: string[][]): ExtractResult {
     errors.push("Aucune transaction trouvée. Sur Kraken, exporte « History → Export → Trades » sur toute la période (les achats « Instant Buy » sont dans l'export « Ledgers »).");
   }
   return { rows: out, errors };
+}
+
+// ── Kraken — Ledgers export (Instant Buy) ────────────────────────────────────
+// Each trade is a group of ledger rows sharing a refid: a `spend` (fiat) leg
+// and a `receive` (crypto) leg. Funding fees live on a same-timestamp `deposit`
+// row (separate refid), which we attribute back to the trade. Crypto
+// deposits/withdrawals (transfers) and staking `earn` rewards are ignored.
+
+interface LedgerRow {
+  refid: string;
+  time: string;
+  type: string;
+  asset: string;
+  amount: number;
+  fee: number;
+}
+
+function extractKrakenLedgers(rows: string[][]): ExtractResult {
+  const header = lowerHeader(rows);
+  const idx = (n: string) => header.indexOf(n);
+  const iRefid = idx("refid");
+  const iTime = idx("time");
+  const iType = idx("type");
+  const iAsset = idx("asset");
+  const iAmount = idx("amount");
+  const iFee = idx("fee");
+  const errors: string[] = [];
+
+  const epoch = (time: string) => Date.parse(`${time.replace(" ", "T")}Z`);
+  const groups = new Map<string, LedgerRow[]>();
+  // Fiat funding fees (instant-buy charges a deposit fee just before the trade,
+  // sometimes 1s earlier), matched to the nearest preceding trade by time.
+  const deposits: { ts: number; fee: number; used: boolean }[] = [];
+
+  for (const row of rows.slice(1)) {
+    const lr: LedgerRow = {
+      refid: (row[iRefid] ?? "").trim(),
+      time: (row[iTime] ?? "").trim(),
+      type: (row[iType] ?? "").trim().toLowerCase(),
+      asset: normalizeKrakenAsset(row[iAsset] ?? ""),
+      amount: num(row[iAmount] ?? ""),
+      fee: iFee !== -1 ? num(row[iFee] ?? "0") || 0 : 0,
+    };
+    if (lr.type === "deposit" && FIAT.has(lr.asset) && lr.fee > 0) {
+      deposits.push({ ts: epoch(lr.time), fee: lr.fee, used: false });
+    }
+    if (!lr.refid) continue;
+    const g = groups.get(lr.refid) ?? [];
+    g.push(lr);
+    groups.set(lr.refid, g);
+  }
+  deposits.sort((a, b) => a.ts - b.ts);
+
+  // Closest unconsumed fiat deposit within 10 min before the trade.
+  const matchDepositFee = (tradeTs: number): number => {
+    let best = -1;
+    for (let k = 0; k < deposits.length; k++) {
+      const d = deposits[k];
+      if (d.used) continue;
+      const gap = tradeTs - d.ts;
+      if (gap >= -2000 && gap <= 600_000) {
+        if (best === -1 || d.ts > deposits[best].ts) best = k;
+      }
+    }
+    if (best === -1) return 0;
+    deposits[best].used = true;
+    return deposits[best].fee;
+  };
+
+  // Build trades, then match deposits chronologically (sequential consumption).
+  interface Trade {
+    refid: string;
+    ts: number;
+    date: string;
+    ticker: string;
+    side: TxSide;
+    quantity: number;
+    price: number;
+    tradeFee: number;
+    fiatAsset: string;
+  }
+  const trades: Trade[] = [];
+  for (const [refid, legs] of groups) {
+    const spend = legs.find((l) => l.type === "spend");
+    const receive = legs.find((l) => l.type === "receive");
+    if (!spend || !receive) continue; // not a trade (deposit/withdrawal/earn)
+
+    const cryptoLeg = [spend, receive].find((l) => !FIAT.has(l.asset));
+    const fiatLeg = [spend, receive].find((l) => FIAT.has(l.asset));
+    if (!cryptoLeg || !fiatLeg) continue; // crypto<->crypto not supported here
+
+    const date = isoDate(fiatLeg.time);
+    if (!date) continue;
+
+    const quantity = Math.abs(cryptoLeg.amount);
+    let side: TxSide;
+    let price: number;
+    if (cryptoLeg.type === "receive") {
+      side = "buy";
+      price = quantity > 0 ? Math.abs(fiatLeg.amount) / quantity : 0;
+    } else {
+      side = "sell";
+      price = quantity > 0 ? Math.abs(fiatLeg.amount) / quantity : 0;
+    }
+    if (quantity <= 0 || !Number.isFinite(price) || price <= 0) continue;
+
+    trades.push({
+      refid,
+      ts: epoch(fiatLeg.time),
+      date,
+      ticker: cryptoLeg.asset,
+      side,
+      quantity,
+      price,
+      tradeFee: fiatLeg.fee,
+      fiatAsset: fiatLeg.asset,
+    });
+  }
+  trades.sort((a, b) => a.ts - b.ts);
+
+  const out: ExtractedRow[] = [];
+  for (const tr of trades) {
+    // Deposit fees only apply to buys (funding the purchase).
+    const fees = tr.tradeFee + (tr.side === "buy" ? matchDepositFee(tr.ts) : 0);
+    const base: ExtractedRow = {
+      ticker: tr.ticker,
+      name: tr.ticker,
+      assetClass: "crypto",
+      side: tr.side,
+      quantity: tr.quantity,
+      price: tr.price,
+      fees: Math.round(fees * 1e6) / 1e6,
+      txDate: tr.date,
+      platform: "Kraken",
+      coingeckoId: resolveCoingeckoId(tr.ticker),
+      extId: `kraken:${tr.refid}`,
+    };
+    if (tr.fiatAsset !== "EUR") {
+      out.push({ ...base, ignored: `Réglé en ${tr.fiatAsset} — vérifie le prix (non converti en EUR)` });
+    } else {
+      out.push(base);
+    }
+  }
+  if (!out.length) {
+    errors.push("Aucune transaction d'achat/vente trouvée dans cet export Ledgers.");
+  }
+  return { rows: out, errors };
+}
+
+// ── Revolut (stocks / ETF) ───────────────────────────────────────────────────
+// Columns: Date, Ticker, Type, Quantity, Price per share, Total Amount,
+// Currency, FX Rate. USD trades are converted to EUR via FX Rate (native per
+// EUR). CASH TOP-UP rows are skipped; DIVIDEND rows are flagged for the Fiscal tab.
+
+function extractRevolut(rows: string[][]): ExtractResult {
+  const header = lowerHeader(rows);
+  const idx = (n: string) => header.indexOf(n);
+  const iDate = idx("date");
+  const iTicker = idx("ticker");
+  const iType = idx("type");
+  const iQty = idx("quantity");
+  const iPrice = idx("price per share");
+  const iTotal = idx("total amount");
+  const iFx = idx("fx rate");
+  const out: ExtractedRow[] = [];
+
+  for (const row of rows.slice(1)) {
+    const typeRaw = (row[iType] ?? "").trim().toUpperCase();
+    const isBuy = typeRaw.includes("BUY");
+    const isSell = typeRaw.includes("SELL");
+    const ticker = (row[iTicker] ?? "").trim().toUpperCase();
+    const date = isoDate(row[iDate] ?? "");
+
+    if (!isBuy && !isSell) {
+      // Dividends are surfaced so the user can log them; top-ups are noise.
+      if (typeRaw.includes("DIVIDEND") && ticker && date) {
+        out.push({
+          ticker,
+          name: ticker,
+          assetClass: "stock",
+          side: "buy",
+          quantity: 0,
+          price: 0,
+          fees: 0,
+          txDate: date,
+          platform: "Revolut",
+          coingeckoId: null,
+          extId: `revolut:${(row[iDate] ?? "").trim()}`,
+          ignored: "Dividende — à enregistrer dans l'onglet Fiscal",
+        });
+      }
+      continue;
+    }
+
+    const fx = iFx !== -1 ? numLoose(row[iFx] ?? "1") || 1 : 1;
+    const priceNative = numLoose(row[iPrice] ?? "");
+    const totalNative = iTotal !== -1 ? numLoose(row[iTotal] ?? "") : NaN;
+    const qty = numLoose(row[iQty] ?? "");
+
+    if (!ticker || !date || !Number.isFinite(qty) || qty <= 0 || !Number.isFinite(priceNative) || priceNative <= 0) {
+      continue;
+    }
+    const priceEur = priceNative / (fx || 1);
+    const totalEur = Number.isFinite(totalNative) ? totalNative / (fx || 1) : qty * priceEur;
+    const fees = Math.max(0, Math.round((totalEur - qty * priceEur) * 1e6) / 1e6);
+
+    out.push({
+      ticker,
+      name: ticker,
+      assetClass: "stock",
+      side: isSell ? "sell" : "buy",
+      quantity: qty,
+      price: Math.round(priceEur * 1e6) / 1e6,
+      fees,
+      txDate: date,
+      platform: "Revolut",
+      coingeckoId: null,
+      extId: `revolut:${(row[iDate] ?? "").trim()}`,
+    });
+  }
+
+  out.sort((a, b) => a.txDate.localeCompare(b.txDate));
+  return { rows: out, errors: [] };
 }
 
 // ── Binance ──────────────────────────────────────────────────────────────────
@@ -424,7 +664,10 @@ export function previewImport(
   let extracted: ExtractResult;
   switch (exchange) {
     case "kraken":
-      extracted = extractKraken(csvRows);
+      extracted = isKrakenLedgers(csvRows) ? extractKrakenLedgers(csvRows) : extractKraken(csvRows);
+      break;
+    case "revolut":
+      extracted = extractRevolut(csvRows);
       break;
     case "binance":
       extracted = extractBinance(csvRows);
@@ -472,7 +715,13 @@ export function previewImport(
   return { exchange, detected, rows, counts, errors: extracted.errors };
 }
 
-/** Insert the confirmed "new" rows, re-checking dedup as a safety net. */
+/**
+ * Insert the rows the user confirmed (the client sends only those it wants,
+ * possibly with values edited/completed by hand). Each row is validated and
+ * re-deduped server-side by ext_id then value fingerprint, so re-imports and
+ * overlaps never create duplicates. Row status is not trusted here: an
+ * "ignored" row the user completed and included is inserted like any other.
+ */
 export function commitImport(rows: ParsedRow[]): { imported: number; skipped: number } {
   const knownExtIds = existingExtIds();
   const knownFps = existingFingerprints();
@@ -480,11 +729,13 @@ export function commitImport(rows: ParsedRow[]): { imported: number; skipped: nu
   let skipped = 0;
 
   for (const r of rows) {
-    if (r.status !== "new") {
+    const qty = Number(r.quantity);
+    const price = Number(r.price);
+    if (!r.ticker || !r.txDate || !(qty > 0) || !(price >= 0)) {
       skipped++;
       continue;
     }
-    const fp = fingerprint(r);
+    const fp = fingerprint({ ...r, quantity: qty, price });
     if ((r.extId && knownExtIds.has(r.extId)) || knownFps.has(fp)) {
       skipped++;
       continue;
@@ -493,12 +744,12 @@ export function commitImport(rows: ParsedRow[]): { imported: number; skipped: nu
     if (r.extId) knownExtIds.add(r.extId);
     toInsert.push({
       ticker: r.ticker,
-      name: r.name,
+      name: r.name || r.ticker,
       assetClass: r.assetClass,
       side: r.side,
-      quantity: r.quantity,
-      price: r.price,
-      fees: r.fees,
+      quantity: qty,
+      price,
+      fees: Number(r.fees) || 0,
       txDate: r.txDate,
       platform: r.platform,
       coingeckoId: r.coingeckoId,

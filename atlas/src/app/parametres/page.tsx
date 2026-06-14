@@ -297,10 +297,18 @@ interface PreviewResult {
 const EXCHANGE_OPTIONS = [
   { id: "auto", label: "Détection automatique" },
   { id: "kraken", label: "Kraken" },
+  { id: "revolut", label: "Revolut (bourse)" },
   { id: "binance", label: "Binance" },
   { id: "coinbase", label: "Coinbase" },
   { id: "generic", label: "Modèle Atlas / autre" },
 ];
+
+interface EditRow {
+  row: PreviewRow;
+  include: boolean;
+  quantity: string;
+  price: string;
+}
 
 function ImportSection() {
   const { t } = useI18n();
@@ -312,6 +320,7 @@ function ImportSection() {
   const [analyzing, setAnalyzing] = useState(false);
   const [committing, setCommitting] = useState(false);
   const [preview, setPreview] = useState<PreviewResult | null>(null);
+  const [editRows, setEditRows] = useState<EditRow[]>([]);
   const [showAll, setShowAll] = useState(false);
 
   const analyze = async () => {
@@ -332,6 +341,14 @@ function ImportSection() {
       const body = (await res.json()) as PreviewResult & { error?: string };
       if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
       setPreview(body);
+      setEditRows(
+        body.rows.map((r) => ({
+          row: r,
+          include: r.status === "new",
+          quantity: r.quantity ? String(r.quantity) : "",
+          price: r.price ? String(r.price) : "",
+        })),
+      );
       for (const err of (body.errors ?? []).slice(0, 2)) toast(err, "error");
     } catch (e) {
       toast(e instanceof Error ? e.message : String(e), "error");
@@ -340,20 +357,29 @@ function ImportSection() {
     }
   };
 
+  const num = (s: string) => parseFloat(s.replace(",", "."));
+  const includedCount = editRows.filter((e) => e.include && num(e.quantity) > 0 && num(e.price) >= 0).length;
+
+  const patch = (i: number, fields: Partial<EditRow>) =>
+    setEditRows((rows) => rows.map((r, j) => (j === i ? { ...r, ...fields } : r)));
+
   const commit = async () => {
-    if (!preview) return;
-    const newRows = preview.rows.filter((r) => r.status === "new");
-    if (!newRows.length) {
+    const rows = editRows
+      .filter((e) => e.include)
+      .map((e) => ({ ...e.row, quantity: num(e.quantity), price: num(e.price) }))
+      .filter((r) => r.quantity > 0 && r.price >= 0 && r.ticker && r.txDate);
+    if (!rows.length) {
       toast(t("set.import.nothingNew"), "info");
       return;
     }
     setCommitting(true);
     try {
       const body = await postJson<{ imported: number; skipped: number }>("/api/import/commit", {
-        rows: newRows,
+        rows,
       });
       toast(t("set.import.done", { imported: body.imported }));
       setPreview(null);
+      setEditRows([]);
       if (fileRef.current) fileRef.current.value = "";
       refresh();
     } catch (e) {
@@ -363,14 +389,11 @@ function ImportSection() {
     }
   };
 
-  const visibleRows = preview
-    ? showAll
-      ? preview.rows
-      : [
-          ...preview.rows.filter((r) => r.status === "new"),
-          ...preview.rows.filter((r) => r.status !== "new"),
-        ].slice(0, 12)
-    : [];
+  // New rows first, then everything else; collapse to 14 unless expanded.
+  const order = editRows
+    .map((e, i) => ({ e, i }))
+    .sort((a, b) => (a.e.row.status === "new" ? 0 : 1) - (b.e.row.status === "new" ? 0 : 1));
+  const visible = showAll ? order : order.slice(0, 14);
 
   return (
     <div>
@@ -440,52 +463,72 @@ function ImportSection() {
                   ignored: preview.counts.ignored,
                 })}
               </p>
-              {preview.exchange !== "generic" ? (
-                <p className="text-[11px] text-muted">
-                  {t("set.import.detected", { exchange: preview.exchange })}
-                </p>
-              ) : null}
+              <p className="text-[11px] text-muted">
+                {preview.exchange !== "generic"
+                  ? `${t("set.import.detected", { exchange: preview.exchange })} · `
+                  : ""}
+                {t("set.import.editHint")}
+              </p>
             </div>
-            <Button onClick={commit} loading={committing} disabled={preview.counts.new === 0}>
-              {t("set.import.confirm", { new: preview.counts.new })}
+            <Button onClick={commit} loading={committing} disabled={includedCount === 0}>
+              {t("set.import.confirm", { new: includedCount })}
             </Button>
           </div>
 
-          {preview.rows.length ? (
-            <div className="max-h-72 overflow-y-auto rounded-lg border border-border/60">
+          {editRows.length ? (
+            <div className="max-h-80 overflow-y-auto rounded-lg border border-border/60">
               <table className="w-full text-xs">
                 <thead className="sticky top-0 bg-surface">
                   <tr className="text-left text-[10px] uppercase tracking-wider text-muted">
-                    <th className="px-2.5 py-1.5">{t("common.date")}</th>
-                    <th className="px-2.5 py-1.5">{t("pf.asset")}</th>
-                    <th className="px-2.5 py-1.5">{t("tx.side")}</th>
-                    <th className="px-2.5 py-1.5 text-right">{t("common.quantity")}</th>
-                    <th className="px-2.5 py-1.5 text-right">{t("common.price")}</th>
-                    <th className="px-2.5 py-1.5">{t("common.note")}</th>
+                    <th className="px-2 py-1.5" />
+                    <th className="px-2 py-1.5">{t("common.date")}</th>
+                    <th className="px-2 py-1.5">{t("pf.asset")}</th>
+                    <th className="px-2 py-1.5">{t("tx.side")}</th>
+                    <th className="px-2 py-1.5 text-right">{t("common.quantity")}</th>
+                    <th className="px-2 py-1.5 text-right">{t("common.price")}</th>
+                    <th className="px-2 py-1.5">{t("common.note")}</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {visibleRows.map((r, i) => (
+                  {visible.map(({ e, i }) => (
                     <tr
-                      key={`${r.fingerprint}-${i}`}
-                      className={cn(
-                        "border-t border-border/40",
-                        r.status !== "new" && "opacity-55",
-                      )}
+                      key={`${e.row.extId ?? e.row.fingerprint}-${i}`}
+                      className={cn("border-t border-border/40", !e.include && "opacity-60")}
                     >
-                      <td className="tnum px-2.5 py-1.5 text-muted">{fmtDate(r.txDate)}</td>
-                      <td className="px-2.5 py-1.5">
-                        <span className="font-mono font-semibold">{r.ticker}</span>
+                      <td className="px-2 py-1.5">
+                        <input
+                          type="checkbox"
+                          checked={e.include}
+                          onChange={(ev) => patch(i, { include: ev.target.checked })}
+                          aria-label={t("common.add")}
+                          className="h-3.5 w-3.5 cursor-pointer accent-[var(--accent)]"
+                        />
                       </td>
-                      <td className="px-2.5 py-1.5">
-                        <Badge tone={r.side === "buy" ? "accent" : "danger"}>
-                          {r.side === "buy" ? t("common.buy") : t("common.sell")}
+                      <td className="tnum px-2 py-1.5 text-muted">{fmtDate(e.row.txDate)}</td>
+                      <td className="px-2 py-1.5 font-mono font-semibold">{e.row.ticker}</td>
+                      <td className="px-2 py-1.5">
+                        <Badge tone={e.row.side === "buy" ? "accent" : "danger"}>
+                          {e.row.side === "buy" ? t("common.buy") : t("common.sell")}
                         </Badge>
                       </td>
-                      <td className="tnum px-2.5 py-1.5 text-right">{fmtQty(r.quantity)}</td>
-                      <td className="tnum px-2.5 py-1.5 text-right">{fmtEur(r.price)}</td>
-                      <td className="px-2.5 py-1.5">
-                        <ImportStatusBadge status={r.status} reason={r.reason} />
+                      <td className="px-2 py-1.5 text-right">
+                        <input
+                          inputMode="decimal"
+                          value={e.quantity}
+                          onChange={(ev) => patch(i, { quantity: ev.target.value })}
+                          className="tnum w-20 rounded-md border border-border bg-surface px-1.5 py-1 text-right focus:border-accent focus:outline-none"
+                        />
+                      </td>
+                      <td className="px-2 py-1.5 text-right">
+                        <input
+                          inputMode="decimal"
+                          value={e.price}
+                          onChange={(ev) => patch(i, { price: ev.target.value })}
+                          className="tnum w-24 rounded-md border border-border bg-surface px-1.5 py-1 text-right focus:border-accent focus:outline-none"
+                        />
+                      </td>
+                      <td className="px-2 py-1.5">
+                        <ImportStatusBadge status={e.row.status} reason={e.row.reason} />
                       </td>
                     </tr>
                   ))}
@@ -494,12 +537,12 @@ function ImportSection() {
             </div>
           ) : null}
 
-          {!showAll && preview.rows.length > visibleRows.length ? (
+          {!showAll && order.length > visible.length ? (
             <button
               onClick={() => setShowAll(true)}
               className="mt-2 cursor-pointer text-[11px] text-accent hover:underline"
             >
-              {t("set.import.showMore", { n: preview.rows.length })}
+              {t("set.import.showMore", { n: order.length })}
             </button>
           ) : null}
         </div>

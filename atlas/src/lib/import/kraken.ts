@@ -26,6 +26,9 @@ const QUOTE_CODES = [
   "XETH",
 ];
 
+/** Fiat currencies, used to tell the fiat leg from the crypto leg in ledgers. */
+export const FIAT = new Set(["EUR", "USD", "GBP", "CHF", "CAD", "JPY", "AUD"]);
+
 const ASSET_ALIASES: Record<string, string> = {
   XXBT: "BTC",
   XBT: "BTC",

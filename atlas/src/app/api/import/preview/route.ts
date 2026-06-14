@@ -5,7 +5,7 @@ import type { AssetClass } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
-const EXCHANGES: ExchangeId[] = ["auto", "kraken", "binance", "coinbase", "generic"];
+const EXCHANGES: ExchangeId[] = ["auto", "kraken", "revolut", "binance", "coinbase", "generic"];
 
 export async function POST(req: NextRequest) {
   try {
