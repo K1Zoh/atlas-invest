@@ -13,6 +13,10 @@ const BROKER_TO_YF: Record<string, string> = {
   L0CK: "L0CK.DE",
   EXSA: "EXSA.DE",
   "500USD.SW": "P500.PA",
+  // Revolut bare codes -> Xetra EUR listings (verified).
+  VUAA: "VUAA.DE",
+  VWCG: "VWCG.DE",
+  "36B5": "36B5.DE",
 };
 
 function toYahooSymbol(ticker: string): string {

@@ -157,6 +157,9 @@ function detectExchange(rows: string[][]): ExchangeId {
   if (h.has("refid") && h.has("asset") && h.has("amount") && h.has("type") && h.has("balance"))
     return "kraken";
   if (h.has("ticker") && h.has("price per share") && h.has("total amount")) return "revolut";
+  // Revolut crypto export: Symbol, Type, Quantity, Price, Value, Fees, Date.
+  if (h.has("symbol") && h.has("value") && h.has("fees") && h.has("quantity") && h.has("date"))
+    return "revolut";
   if (h.has("pair") && h.has("executed") && (h.has("side") || h.has("type"))) return "binance";
   if (h.has("transaction type") && h.has("quantity transacted")) return "coinbase";
   return "generic";
@@ -445,6 +448,84 @@ function extractRevolut(rows: string[][]): ExtractResult {
   return { rows: out, errors: [] };
 }
 
+// ── Revolut (crypto) ─────────────────────────────────────────────────────────
+// Columns: Symbol, Type, Quantity, Price, Value, Fees, Date. Amounts use "," as
+// a thousands separator. Buy/Receive are imported (price = Value/Quantity, the
+// Price column is rounded to cents and useless for cheap coins). "Learn reward"
+// and "Staking reward" are free dust with no value: flagged, not imported.
+
+function numUS(raw: string): number {
+  return parseFloat((raw ?? "").replace(/[^0-9.-]/g, ""));
+}
+
+function extractRevolutCrypto(rows: string[][]): ExtractResult {
+  const header = lowerHeader(rows);
+  const idx = (n: string) => header.indexOf(n);
+  const iSymbol = idx("symbol");
+  const iType = idx("type");
+  const iQty = idx("quantity");
+  const iValue = idx("value");
+  const iFees = idx("fees");
+  const iDate = idx("date");
+  const out: ExtractedRow[] = [];
+
+  for (const row of rows.slice(1)) {
+    const typeRaw = (row[iType] ?? "").trim().toLowerCase();
+    const ticker = (row[iSymbol] ?? "").trim().toUpperCase();
+    const rawDate = (row[iDate] ?? "").trim();
+    const d = new Date(rawDate);
+    const date = Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
+    if (!ticker || !date) continue;
+
+    const isBuy = typeRaw.includes("buy");
+    const isReceive = typeRaw === "receive";
+    const isReward = typeRaw.includes("reward");
+
+    if (isReward) {
+      // Free Learn/Staking dust: surfaced but not imported (no cost, untracked).
+      out.push({
+        ticker,
+        name: ticker,
+        assetClass: "crypto",
+        side: "buy",
+        quantity: numUS(row[iQty] ?? "") || 0,
+        price: 0,
+        fees: 0,
+        txDate: date,
+        platform: "Revolut",
+        coingeckoId: resolveCoingeckoId(ticker),
+        extId: `revolutc:${rawDate}:${ticker}`,
+        ignored: "Récompense gratuite (Learn/Staking) — non importée par défaut",
+      });
+      continue;
+    }
+    if (!isBuy && !isReceive) continue;
+
+    const qty = numUS(row[iQty] ?? "");
+    const valueEur = numUS(row[iValue] ?? "");
+    const fees = iFees !== -1 ? numUS(row[iFees] ?? "0") || 0 : 0;
+    if (!Number.isFinite(qty) || qty <= 0 || !Number.isFinite(valueEur) || valueEur <= 0) continue;
+    const price = valueEur / qty;
+
+    out.push({
+      ticker,
+      name: ticker,
+      assetClass: "crypto",
+      side: "buy",
+      quantity: qty,
+      price: Math.round(price * 1e8) / 1e8,
+      fees,
+      txDate: date,
+      platform: "Revolut",
+      coingeckoId: resolveCoingeckoId(ticker),
+      extId: `revolutc:${rawDate}:${ticker}`,
+    });
+  }
+
+  out.sort((a, b) => a.txDate.localeCompare(b.txDate));
+  return { rows: out, errors: [] };
+}
+
 // ── Binance ──────────────────────────────────────────────────────────────────
 
 function extractBinance(rows: string[][]): ExtractResult {
@@ -666,9 +747,13 @@ export function previewImport(
     case "kraken":
       extracted = isKrakenLedgers(csvRows) ? extractKrakenLedgers(csvRows) : extractKraken(csvRows);
       break;
-    case "revolut":
-      extracted = extractRevolut(csvRows);
+    case "revolut": {
+      const h = new Set(lowerHeader(csvRows));
+      extracted = h.has("price per share")
+        ? extractRevolut(csvRows)
+        : extractRevolutCrypto(csvRows);
       break;
+    }
     case "binance":
       extracted = extractBinance(csvRows);
       break;
