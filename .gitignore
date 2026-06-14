@@ -14,3 +14,7 @@ node_modules
 # exports courtier personnels
 *.csv
 !atlas/**/*.csv
+
+# outillage skills (hors app)
+skills-lock.json
+atlas/skills-lock.json
