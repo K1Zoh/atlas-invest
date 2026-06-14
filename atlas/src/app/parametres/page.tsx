@@ -1,6 +1,6 @@
 "use client";
 
-import { Bell, Bot, Database, Download, FileSearch, Palette } from "lucide-react";
+import { Bell, Bot, Database, Download, FileSearch, Palette, Upload } from "lucide-react";
 import { useTheme } from "next-themes";
 import { useEffect, useRef, useState } from "react";
 import { useRefresh, useToast } from "@/components/providers";
@@ -622,7 +622,65 @@ function DataCard() {
             )}
           </div>
         </div>
+
+        <BackupSection />
       </div>
     </Card>
+  );
+}
+
+function BackupSection() {
+  const { t } = useI18n();
+  const { toast } = useToast();
+  const { refresh } = useRefresh();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [restoring, setRestoring] = useState(false);
+
+  const restore = async () => {
+    const file = fileRef.current?.files?.[0];
+    if (!file) {
+      fileRef.current?.click();
+      return;
+    }
+    if (!window.confirm(t("set.backup.confirm"))) return;
+    setRestoring(true);
+    try {
+      const form = new FormData();
+      form.set("file", file);
+      const res = await fetch("/api/backup/restore", { method: "POST", body: form });
+      const body = (await res.json()) as { restored?: boolean; error?: string };
+      if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
+      toast(t("set.backup.done"));
+      if (fileRef.current) fileRef.current.value = "";
+      refresh();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : String(e), "error");
+    } finally {
+      setRestoring(false);
+    }
+  };
+
+  return (
+    <div className="border-t border-border/60 pt-5">
+      <p className="text-sm font-medium">{t("set.backup.title")}</p>
+      <p className="mt-0.5 text-xs leading-relaxed text-muted">{t("set.backup.hint")}</p>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <a href="/api/backup" download>
+          <Button variant="outline" type="button">
+            <Download className="h-4 w-4" /> {t("set.backup.download")}
+          </Button>
+        </a>
+        <input
+          ref={fileRef}
+          type="file"
+          accept=".db,application/octet-stream,application/x-sqlite3"
+          aria-label={t("set.backup.restore")}
+          className="cursor-pointer text-xs text-muted file:mr-3 file:cursor-pointer file:rounded-lg file:border file:border-border file:bg-surface-2 file:px-3 file:py-1.5 file:text-xs file:text-foreground"
+        />
+        <Button variant="ghost" onClick={restore} loading={restoring}>
+          <Upload className="h-4 w-4" /> {t("set.backup.restore")}
+        </Button>
+      </div>
+    </div>
   );
 }

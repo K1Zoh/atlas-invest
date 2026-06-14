@@ -2,8 +2,8 @@ import Database from "better-sqlite3";
 import fs from "node:fs";
 import path from "node:path";
 
-const DATA_DIR = path.join(process.cwd(), "data");
-const DB_PATH = path.join(DATA_DIR, "atlas.db");
+export const DATA_DIR = path.join(process.cwd(), "data");
+export const DB_PATH = path.join(DATA_DIR, "atlas.db");
 
 declare global {
   // Reuse the connection across hot reloads in dev.
@@ -131,4 +131,35 @@ export function getDb(): Database.Database {
     globalThis.__atlasDb = createDb();
   }
   return globalThis.__atlasDb;
+}
+
+/**
+ * Produce a consistent snapshot of the database as a Buffer (checkpoints the
+ * WAL into the main file first so nothing is missing). Used by backup export.
+ */
+export function snapshotDb(): Buffer {
+  const db = getDb();
+  db.pragma("wal_checkpoint(TRUNCATE)");
+  return fs.readFileSync(DB_PATH);
+}
+
+/**
+ * Replace the database file with new bytes (restore). The caller is expected to
+ * have validated the bytes. Closes the live connection, swaps the file, and
+ * drops the cached handle so the next getDb() reopens the restored database.
+ */
+export function replaceDb(bytes: Buffer): void {
+  if (globalThis.__atlasDb) {
+    globalThis.__atlasDb.close();
+    globalThis.__atlasDb = undefined;
+  }
+  fs.writeFileSync(DB_PATH, bytes);
+  // Stale WAL/SHM would otherwise be applied on top of the restored file.
+  for (const ext of ["-wal", "-shm"]) {
+    try {
+      fs.rmSync(DB_PATH + ext, { force: true });
+    } catch {
+      // ignore
+    }
+  }
 }

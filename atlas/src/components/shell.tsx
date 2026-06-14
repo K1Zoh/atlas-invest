@@ -205,9 +205,12 @@ function Topbar() {
                 <AnimatedNumber
                   value={data?.summary.totalValue ?? 0}
                   format={fmtEur}
-                  className="text-lg font-bold leading-tight"
+                  className="text-base font-bold leading-tight sm:text-lg"
                 />
-                <PctBadge value={data?.summary.dayChangePct ?? null} />
+                {/* Hidden on the tightest screens to avoid crowding the actions. */}
+                <span className="hidden sm:inline-flex">
+                  <PctBadge value={data?.summary.dayChangePct ?? null} />
+                </span>
               </div>
               {data?.quotesAsOf ? (
                 <p

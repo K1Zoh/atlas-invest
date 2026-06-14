@@ -297,6 +297,12 @@ const fr = {
   "set.legacy.run": "Migrer mes données",
   "set.legacy.unavailable": "Ancienne base introuvable (data/portfolio.db).",
   "set.legacy.done": "{transactions} transactions migrées, {watchlist} watchlist, {dividends} dividendes, {settings} réglages",
+  "set.backup.title": "Sauvegarde & restauration",
+  "set.backup.hint": "Télécharge un fichier de ta base (positions, watchlist, réglages) pour le conserver. La restauration remplace les données actuelles — une sauvegarde de sécurité est créée avant.",
+  "set.backup.download": "Télécharger une sauvegarde",
+  "set.backup.restore": "Restaurer une sauvegarde",
+  "set.backup.confirm": "Restaurer cette sauvegarde ? Tes données actuelles seront remplacées (une copie de sécurité est créée avant).",
+  "set.backup.done": "Sauvegarde restaurée",
   "set.saveKeys": "Enregistrer",
 
   // Quick add
@@ -605,6 +611,12 @@ const en: Record<TKey, string> = {
   "set.legacy.run": "Migrate my data",
   "set.legacy.unavailable": "Legacy database not found (data/portfolio.db).",
   "set.legacy.done": "{transactions} transactions migrated, {watchlist} watchlist, {dividends} dividends, {settings} settings",
+  "set.backup.title": "Backup & restore",
+  "set.backup.hint": "Download a file of your database (positions, watchlist, settings) to keep it safe. Restoring replaces current data — a safety backup is created first.",
+  "set.backup.download": "Download a backup",
+  "set.backup.restore": "Restore a backup",
+  "set.backup.confirm": "Restore this backup? Your current data will be replaced (a safety copy is made first).",
+  "set.backup.done": "Backup restored",
   "set.saveKeys": "Save",
 
   "qa.title": "Quick add",

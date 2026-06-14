@@ -105,7 +105,50 @@ export default function TransactionsPage() {
           </Button>
         </EmptyState>
       ) : (
-        <Card className="fade-up overflow-x-auto">
+        <>
+        {/* Mobile: stacked cards. */}
+        <div className="flex flex-col gap-2 lg:hidden">
+          {data.transactions.map((tx, i) => (
+            <div
+              key={tx.id}
+              className="fade-up flex items-center justify-between gap-3 rounded-xl border border-border bg-surface/80 px-4 py-3"
+              style={{ animationDelay: `${Math.min(i * 25, 300)}ms` }}
+            >
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <Badge tone={tx.side === "buy" ? "accent" : "danger"}>
+                    {tx.side === "buy" ? t("common.buy") : t("common.sell")}
+                  </Badge>
+                  <Link
+                    href={`/actif/${encodeURIComponent(tx.ticker)}?class=${tx.assetClass}`}
+                    className="cursor-pointer font-mono text-sm font-bold transition-colors hover:text-accent"
+                  >
+                    {tx.ticker}
+                  </Link>
+                  <span className="text-xs text-muted">{fmtDate(tx.txDate)}</span>
+                </div>
+                <p className="tnum mt-1 text-xs text-muted">
+                  {fmtQty(tx.quantity)} × {fmtEur(tx.price)}
+                  {tx.platform ? ` · ${tx.platform}` : ""}
+                </p>
+              </div>
+              <div className="flex shrink-0 items-center gap-1">
+                <span className="tnum mr-1 text-sm font-semibold">
+                  {fmtEur(tx.quantity * tx.price + (tx.side === "buy" ? tx.fees : -tx.fees))}
+                </span>
+                <IconBtn label={t("common.edit")} onClick={() => setEditing(tx)}>
+                  <Pencil className="h-3.5 w-3.5" />
+                </IconBtn>
+                <IconBtn label={t("common.delete")} danger onClick={() => setDeleting(tx)}>
+                  <Trash2 className="h-3.5 w-3.5" />
+                </IconBtn>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Desktop: full table. */}
+        <Card className="fade-up hidden overflow-x-auto lg:block">
           <table className="w-full min-w-[720px] text-sm">
             <thead>
               <tr className="border-b border-border text-left text-[11px] uppercase tracking-wider text-muted">
@@ -171,6 +214,7 @@ export default function TransactionsPage() {
             </tbody>
           </table>
         </Card>
+        </>
       )}
 
       {editing ? (

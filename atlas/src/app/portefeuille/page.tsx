@@ -76,7 +76,28 @@ export default function PortfolioPage() {
       ) : !rows.length ? (
         <EmptyState title={t("pf.empty")} />
       ) : (
-        <Card className="fade-up overflow-x-auto">
+        <>
+        {/* Mobile: stacked cards (the wide table is unreadable on a phone). */}
+        <div className="flex flex-col gap-2 lg:hidden">
+          {rows.map((v, i) => (
+            <PositionCard
+              key={`${v.assetClass}:${v.ticker}`}
+              v={v}
+              index={i}
+              onOpen={() => router.push(`/actif/${encodeURIComponent(v.ticker)}?class=${v.assetClass}`)}
+            />
+          ))}
+          <div className="mt-1 flex items-center justify-between rounded-xl border border-border bg-surface-2/40 px-4 py-2.5 text-xs font-semibold">
+            <span>{t("common.total")}</span>
+            <span className="flex items-center gap-2">
+              <span className="tnum">{fmtEur(totals.value)}</span>
+              <PctBadge value={totals.pnlPct} />
+            </span>
+          </div>
+        </div>
+
+        {/* Desktop: full sortable table. */}
+        <Card className="fade-up hidden overflow-x-auto lg:block">
           <table className="w-full min-w-[760px] text-sm">
             <thead>
               <tr className="border-b border-border text-left text-[11px] uppercase tracking-wider text-muted">
@@ -119,8 +140,40 @@ export default function PortfolioPage() {
             </tfoot>
           </table>
         </Card>
+        </>
       )}
     </div>
+  );
+}
+
+function PositionCard({ v, index, onOpen }: { v: PositionView; index: number; onOpen: () => void }) {
+  return (
+    <button
+      onClick={onOpen}
+      className="fade-up flex w-full cursor-pointer items-center justify-between gap-3 rounded-xl border border-border bg-surface/80 px-4 py-3 text-left transition-colors hover:border-accent/35"
+      style={{ animationDelay: `${Math.min(index * 30, 300)}ms` }}
+    >
+      <div className="flex min-w-0 items-center gap-3">
+        <span
+          className={cn(
+            "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg",
+            v.assetClass === "crypto" ? "bg-warning-soft text-warning" : "bg-accent-2/10 text-accent-2",
+          )}
+        >
+          {v.assetClass === "crypto" ? <Bitcoin className="h-4 w-4" /> : <CandlestickChart className="h-4 w-4" />}
+        </span>
+        <div className="min-w-0">
+          <p className="font-mono text-sm font-bold">{v.ticker}</p>
+          <p className="tnum text-xs text-muted">
+            {fmtQty(v.quantity)} · {fmtEur(v.price)}
+          </p>
+        </div>
+      </div>
+      <div className="flex shrink-0 flex-col items-end gap-1">
+        <span className="tnum text-sm font-semibold">{fmtEur(v.value)}</span>
+        <PctBadge value={v.pnlPct} />
+      </div>
+    </button>
   );
 }
 
