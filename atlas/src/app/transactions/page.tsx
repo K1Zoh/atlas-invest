@@ -5,19 +5,9 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useRefresh, useToast } from "@/components/providers";
 import { openQuickAdd } from "@/components/quick-add";
-import {
-  Badge,
-  Button,
-  Card,
-  Dialog,
-  EmptyState,
-  Field,
-  Input,
-  Segmented,
-  Select,
-  Skeleton,
-} from "@/components/ui";
-import { fmtDate, fmtEur, fmtQty, todayIso } from "@/lib/format";
+import { IconBtn, TxEditDialog } from "@/components/tx-edit-dialog";
+import { Badge, Button, Card, Dialog, EmptyState, Segmented, Skeleton } from "@/components/ui";
+import { fmtDate, fmtEur, fmtQty } from "@/lib/format";
 import { useI18n } from "@/lib/i18n";
 import type { Transaction } from "@/lib/types";
 import { postJson, useApi } from "@/lib/use-api";
@@ -218,7 +208,7 @@ export default function TransactionsPage() {
       )}
 
       {editing ? (
-        <EditDialog tx={editing} onClose={() => setEditing(null)} onSaved={() => {
+        <TxEditDialog tx={editing} onClose={() => setEditing(null)} onSaved={() => {
           setEditing(null);
           refresh();
         }} />
@@ -241,113 +231,3 @@ export default function TransactionsPage() {
   );
 }
 
-function IconBtn({
-  children,
-  label,
-  onClick,
-  danger,
-}: {
-  children: React.ReactNode;
-  label: string;
-  onClick: () => void;
-  danger?: boolean;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      aria-label={label}
-      title={label}
-      className={cn(
-        "cursor-pointer rounded-lg p-1.5 text-muted transition-colors",
-        danger ? "hover:bg-danger-soft hover:text-danger" : "hover:bg-surface-2 hover:text-foreground",
-      )}
-    >
-      {children}
-    </button>
-  );
-}
-
-function EditDialog({
-  tx,
-  onClose,
-  onSaved,
-}: {
-  tx: Transaction;
-  onClose: () => void;
-  onSaved: () => void;
-}) {
-  const { t } = useI18n();
-  const { toast } = useToast();
-  const [side, setSide] = useState(tx.side);
-  const [quantity, setQuantity] = useState(String(tx.quantity));
-  const [price, setPrice] = useState(String(tx.price));
-  const [fees, setFees] = useState(String(tx.fees));
-  const [date, setDate] = useState(tx.txDate);
-  const [platform, setPlatform] = useState(tx.platform ?? "");
-  const [note, setNote] = useState(tx.note ?? "");
-  const [saving, setSaving] = useState(false);
-
-  const save = async () => {
-    setSaving(true);
-    try {
-      await postJson(
-        `/api/transactions/${tx.id}`,
-        {
-          side,
-          quantity: parseFloat(quantity.replace(",", ".")),
-          price: parseFloat(price.replace(",", ".")),
-          fees: parseFloat(fees.replace(",", ".")) || 0,
-          txDate: date,
-          platform: platform || null,
-          note: note.trim() || null,
-        },
-        "PATCH",
-      );
-      toast(t("common.saved"));
-      onSaved();
-    } catch (e) {
-      toast(e instanceof Error ? e.message : String(e), "error");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <Dialog open onClose={onClose} title={`${t("common.edit")} — ${tx.ticker}`}>
-      <div className="grid grid-cols-2 gap-3">
-        <Field label={t("tx.side")}>
-          <Select value={side} onChange={(e) => setSide(e.target.value as "buy" | "sell")}>
-            <option value="buy">{t("common.buy")}</option>
-            <option value="sell">{t("common.sell")}</option>
-          </Select>
-        </Field>
-        <Field label={t("common.date")}>
-          <Input type="date" value={date} max={todayIso()} onChange={(e) => setDate(e.target.value)} />
-        </Field>
-        <Field label={t("common.quantity")}>
-          <Input inputMode="decimal" value={quantity} onChange={(e) => setQuantity(e.target.value)} />
-        </Field>
-        <Field label={t("common.price")}>
-          <Input inputMode="decimal" value={price} onChange={(e) => setPrice(e.target.value)} />
-        </Field>
-        <Field label={t("common.fees")}>
-          <Input inputMode="decimal" value={fees} onChange={(e) => setFees(e.target.value)} />
-        </Field>
-        <Field label={t("common.platform")}>
-          <Input value={platform} onChange={(e) => setPlatform(e.target.value)} />
-        </Field>
-        <Field label={t("common.note")} className="col-span-2">
-          <Input value={note} onChange={(e) => setNote(e.target.value)} />
-        </Field>
-      </div>
-      <div className="mt-4 flex justify-end gap-2">
-        <Button variant="ghost" onClick={onClose}>
-          {t("common.cancel")}
-        </Button>
-        <Button onClick={save} loading={saving}>
-          {t("common.save")}
-        </Button>
-      </div>
-    </Dialog>
-  );
-}

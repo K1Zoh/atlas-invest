@@ -5,7 +5,7 @@ import { useTheme } from "next-themes";
 import { useEffect, useRef, useState } from "react";
 import { useRefresh, useToast } from "@/components/providers";
 import { Badge, Button, Card, CardHeader, Field, Input, Segmented, Select, Skeleton } from "@/components/ui";
-import { fmtDate, fmtEur, fmtQty } from "@/lib/format";
+import { fmtDate, todayIso } from "@/lib/format";
 import { useI18n, type Lang } from "@/lib/i18n";
 import { postJson, useApi } from "@/lib/use-api";
 import { cn } from "@/lib/utils";
@@ -315,8 +315,11 @@ function ImportSection() {
   const { toast } = useToast();
   const { refresh } = useRefresh();
   const fileRef = useRef<HTMLInputElement>(null);
+  const [mode, setMode] = useState<"positions" | "broker">("positions");
   const [exchange, setExchange] = useState("auto");
   const [importClass, setImportClass] = useState<"stock" | "crypto">("crypto");
+  const [pasteText, setPasteText] = useState("");
+  const [asOfDate, setAsOfDate] = useState(todayIso());
   const [analyzing, setAnalyzing] = useState(false);
   const [committing, setCommitting] = useState(false);
   const [preview, setPreview] = useState<PreviewResult | null>(null);
@@ -324,19 +327,34 @@ function ImportSection() {
   const [showAll, setShowAll] = useState(false);
 
   const analyze = async () => {
-    const file = fileRef.current?.files?.[0];
-    if (!file) {
-      fileRef.current?.click();
-      return;
+    const form = new FormData();
+    if (mode === "positions") {
+      form.set("exchange", "positions");
+      form.set("assetClass", importClass);
+      form.set("asOfDate", asOfDate);
+      const file = fileRef.current?.files?.[0];
+      if (file) form.set("file", file);
+      else if (pasteText.trim()) form.set("text", pasteText);
+      else {
+        // Nothing pasted and no file: open the picker as a convenience.
+        fileRef.current?.click();
+        return;
+      }
+    } else {
+      const file = fileRef.current?.files?.[0];
+      if (!file) {
+        fileRef.current?.click();
+        return;
+      }
+      form.set("file", file);
+      form.set("exchange", exchange);
+      form.set("assetClass", importClass);
     }
+
     setAnalyzing(true);
     setPreview(null);
     setShowAll(false);
     try {
-      const form = new FormData();
-      form.set("file", file);
-      form.set("exchange", exchange);
-      form.set("assetClass", importClass);
       const res = await fetch("/api/import/preview", { method: "POST", body: form });
       const body = (await res.json()) as PreviewResult & { error?: string };
       if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
@@ -380,6 +398,7 @@ function ImportSection() {
       toast(t("set.import.done", { imported: body.imported }));
       setPreview(null);
       setEditRows([]);
+      setPasteText("");
       if (fileRef.current) fileRef.current.value = "";
       refresh();
     } catch (e) {
@@ -395,62 +414,145 @@ function ImportSection() {
     .sort((a, b) => (a.e.row.status === "new" ? 0 : 1) - (b.e.row.status === "new" ? 0 : 1));
   const visible = showAll ? order : order.slice(0, 14);
 
+  const switchMode = (m: "positions" | "broker") => {
+    setMode(m);
+    setPreview(null);
+    setEditRows([]);
+    if (fileRef.current) fileRef.current.value = "";
+  };
+
   return (
     <div>
       <p className="text-sm font-medium">{t("set.import.title")}</p>
-      <p className="mt-0.5 text-xs leading-relaxed text-muted">{t("set.import.hint")}</p>
 
-      <div className="mt-3 flex flex-wrap items-end gap-2">
-        <label className="flex flex-col gap-1">
-          <span className="text-[11px] font-medium text-muted">{t("set.import.exchange")}</span>
-          <Select
-            value={exchange}
-            onChange={(e) => setExchange(e.target.value)}
-            className="w-52"
-            aria-label={t("set.import.exchange")}
-          >
-            {EXCHANGE_OPTIONS.map((x) => (
-              <option key={x.id} value={x.id}>
-                {x.label}
-              </option>
-            ))}
-          </Select>
-        </label>
-        {exchange === "generic" ? (
-          <label className="flex flex-col gap-1">
-            <span className="text-[11px] font-medium text-muted">{t("set.import.class")}</span>
-            <Select
-              value={importClass}
-              onChange={(e) => setImportClass(e.target.value as "stock" | "crypto")}
-              className="w-36"
-            >
-              <option value="crypto">{t("common.crypto")}</option>
-              <option value="stock">{t("common.stocks")}</option>
-            </Select>
-          </label>
-        ) : null}
-      </div>
-
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        <input
-          ref={fileRef}
-          type="file"
-          accept=".csv,.zip,text/csv,application/zip"
-          onChange={() => setPreview(null)}
-          aria-label={t("set.import.title")}
-          className="cursor-pointer text-xs text-muted file:mr-3 file:cursor-pointer file:rounded-lg file:border file:border-border file:bg-surface-2 file:px-3 file:py-1.5 file:text-xs file:text-foreground"
+      <div className="mt-2">
+        <Segmented<"positions" | "broker">
+          options={[
+            { value: "positions", label: t("set.import.mode.positions") },
+            { value: "broker", label: t("set.import.mode.broker") },
+          ]}
+          value={mode}
+          onChange={switchMode}
         />
-        <Button variant="outline" onClick={analyze} loading={analyzing}>
-          <FileSearch className="h-4 w-4" /> {t("set.import.analyze")}
-        </Button>
-        <a
-          href="/api/import/template"
-          download
-          className="inline-flex cursor-pointer items-center gap-1.5 rounded-xl px-2 py-1.5 text-xs text-muted transition-colors hover:text-accent"
-        >
-          <Download className="h-3.5 w-3.5" /> {t("set.import.template")}
-        </a>
       </div>
+
+      {mode === "positions" ? (
+        <>
+          <p className="mt-3 text-xs leading-relaxed text-muted">{t("set.import.positions.hint")}</p>
+
+          <div className="mt-3 flex flex-wrap items-end gap-3">
+            <label className="flex flex-col gap-1">
+              <span className="text-[11px] font-medium text-muted">{t("set.import.class")}</span>
+              <Select
+                value={importClass}
+                onChange={(e) => setImportClass(e.target.value as "stock" | "crypto")}
+                className="w-36"
+              >
+                <option value="crypto">{t("common.crypto")}</option>
+                <option value="stock">{t("common.stocks")}</option>
+              </Select>
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-[11px] font-medium text-muted">{t("set.import.positions.date")}</span>
+              <Input
+                type="date"
+                value={asOfDate}
+                max={todayIso()}
+                onChange={(e) => setAsOfDate(e.target.value)}
+                className="w-44"
+              />
+            </label>
+          </div>
+
+          <textarea
+            value={pasteText}
+            onChange={(e) => {
+              setPasteText(e.target.value);
+              setPreview(null);
+            }}
+            rows={4}
+            placeholder={t("set.import.positions.paste")}
+            className="mt-3 w-full rounded-xl border border-border bg-surface-2/60 px-3 py-2 font-mono text-xs text-foreground placeholder:text-muted/60 focus:border-accent focus:outline-none"
+          />
+
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <Button variant="outline" onClick={analyze} loading={analyzing}>
+              <FileSearch className="h-4 w-4" /> {t("set.import.positions.analyze")}
+            </Button>
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".csv,text/csv"
+              onChange={() => setPreview(null)}
+              aria-label={t("set.import.positions.fileHint")}
+              className="cursor-pointer text-xs text-muted file:mr-3 file:cursor-pointer file:rounded-lg file:border file:border-border file:bg-surface-2 file:px-3 file:py-1.5 file:text-xs file:text-foreground"
+            />
+            <a
+              href="/api/import/template?type=positions"
+              download
+              className="inline-flex cursor-pointer items-center gap-1.5 rounded-xl px-2 py-1.5 text-xs text-muted transition-colors hover:text-accent"
+            >
+              <Download className="h-3.5 w-3.5" /> {t("set.import.positions.template")}
+            </a>
+          </div>
+        </>
+      ) : (
+        <>
+          <p className="mt-3 text-xs leading-relaxed text-muted">{t("set.import.broker.hint")}</p>
+
+          <div className="mt-3 flex flex-wrap items-end gap-2">
+            <label className="flex flex-col gap-1">
+              <span className="text-[11px] font-medium text-muted">{t("set.import.exchange")}</span>
+              <Select
+                value={exchange}
+                onChange={(e) => setExchange(e.target.value)}
+                className="w-52"
+                aria-label={t("set.import.exchange")}
+              >
+                {EXCHANGE_OPTIONS.map((x) => (
+                  <option key={x.id} value={x.id}>
+                    {x.label}
+                  </option>
+                ))}
+              </Select>
+            </label>
+            {exchange === "generic" ? (
+              <label className="flex flex-col gap-1">
+                <span className="text-[11px] font-medium text-muted">{t("set.import.class")}</span>
+                <Select
+                  value={importClass}
+                  onChange={(e) => setImportClass(e.target.value as "stock" | "crypto")}
+                  className="w-36"
+                >
+                  <option value="crypto">{t("common.crypto")}</option>
+                  <option value="stock">{t("common.stocks")}</option>
+                </Select>
+              </label>
+            ) : null}
+          </div>
+
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".csv,.zip,text/csv,application/zip"
+              onChange={() => setPreview(null)}
+              aria-label={t("set.import.title")}
+              className="cursor-pointer text-xs text-muted file:mr-3 file:cursor-pointer file:rounded-lg file:border file:border-border file:bg-surface-2 file:px-3 file:py-1.5 file:text-xs file:text-foreground"
+            />
+            <Button variant="outline" onClick={analyze} loading={analyzing}>
+              <FileSearch className="h-4 w-4" /> {t("set.import.analyze")}
+            </Button>
+            <a
+              href="/api/import/template"
+              download
+              className="inline-flex cursor-pointer items-center gap-1.5 rounded-xl px-2 py-1.5 text-xs text-muted transition-colors hover:text-accent"
+            >
+              <Download className="h-3.5 w-3.5" /> {t("set.import.template")}
+            </a>
+          </div>
+        </>
+      )}
 
       {preview ? (
         <div className="fade-up mt-4 rounded-xl border border-border bg-surface-2/40 p-3">

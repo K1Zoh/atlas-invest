@@ -5,11 +5,13 @@ import {
   Bell,
   Bitcoin,
   CandlestickChart,
+  Pencil,
   Plus,
   Sparkles,
+  Trash2,
 } from "lucide-react";
 import Link from "next/link";
-import { useParams, useSearchParams } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useMemo, useState } from "react";
 import { AlertDialog } from "@/components/alert-dialog";
 import { PriceChart, type PricePoint } from "@/components/charts";
@@ -17,11 +19,13 @@ import { Markdown } from "@/components/markdown";
 import { usePortfolio } from "@/components/portfolio-context";
 import { useRefresh, useToast } from "@/components/providers";
 import { openQuickAdd } from "@/components/quick-add";
+import { IconBtn, TxEditDialog } from "@/components/tx-edit-dialog";
 import {
   Badge,
   Button,
   Card,
   CardHeader,
+  Dialog,
   PctBadge,
   Segmented,
   Skeleton,
@@ -52,11 +56,15 @@ function AssetPageInner() {
   const { data } = usePortfolio();
   const { toast } = useToast();
   const { refresh } = useRefresh();
+  const router = useRouter();
   const [period, setPeriod] = useState<Period>("365");
   const [showMa, setShowMa] = useState(true);
   const [alertOpen, setAlertOpen] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiResult, setAiResult] = useState<{ model: string; content: string } | null>(null);
+  const [editingTx, setEditingTx] = useState<Transaction | null>(null);
+  const [deletingTx, setDeletingTx] = useState<Transaction | null>(null);
+  const [deletePosOpen, setDeletePosOpen] = useState(false);
 
   const view = data?.views.find((v) => v.ticker === ticker && v.assetClass === assetClass);
   const coingeckoId = view?.coingeckoId;
@@ -116,6 +124,39 @@ function AssetPageInner() {
     }
   };
 
+  const afterTxChange = () => {
+    txs.reload();
+    refresh();
+  };
+
+  const removeTx = async () => {
+    if (!deletingTx) return;
+    try {
+      await postJson(`/api/transactions/${deletingTx.id}`, undefined, "DELETE");
+      toast(t("tx.deleteOk"));
+      setDeletingTx(null);
+      afterTxChange();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : String(e), "error");
+    }
+  };
+
+  const removePosition = async () => {
+    try {
+      await postJson(
+        `/api/transactions?ticker=${encodeURIComponent(ticker)}&class=${assetClass}`,
+        undefined,
+        "DELETE",
+      );
+      toast(t("pf.deleteOk"));
+      setDeletePosOpen(false);
+      refresh();
+      router.push("/portefeuille");
+    } catch (e) {
+      toast(e instanceof Error ? e.message : String(e), "error");
+    }
+  };
+
   const rsiTone = rsi === null ? null : rsi > 70 ? t("asset.overbought") : rsi < 30 ? t("asset.oversold") : t("asset.neutral");
 
   return (
@@ -171,6 +212,15 @@ function AssetPageInner() {
             <Button variant="outline" onClick={() => setAlertOpen(true)}>
               <Bell className="h-4 w-4" /> {t("asset.addAlert")}
             </Button>
+            {view ? (
+              <Button
+                variant="ghost"
+                onClick={() => setDeletePosOpen(true)}
+                className="text-danger hover:bg-danger-soft hover:text-danger"
+              >
+                <Trash2 className="h-4 w-4" /> {t("asset.deletePosition")}
+              </Button>
+            ) : null}
           </div>
         </div>
       </div>
@@ -332,9 +382,17 @@ function AssetPageInner() {
                     </Badge>
                     <span className="text-xs text-muted">{fmtDate(tx.txDate)}</span>
                   </div>
-                  <div className="tnum text-right text-xs">
-                    <span className="font-medium">{fmtQty(tx.quantity)}</span>
-                    <span className="text-muted"> × {fmtEur(tx.price)}</span>
+                  <div className="flex items-center gap-1.5">
+                    <div className="tnum text-right text-xs">
+                      <span className="font-medium">{fmtQty(tx.quantity)}</span>
+                      <span className="text-muted"> × {fmtEur(tx.price)}</span>
+                    </div>
+                    <IconBtn label={t("common.edit")} onClick={() => setEditingTx(tx)}>
+                      <Pencil className="h-3.5 w-3.5" />
+                    </IconBtn>
+                    <IconBtn label={t("common.delete")} danger onClick={() => setDeletingTx(tx)}>
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </IconBtn>
                   </div>
                 </div>
               ))
@@ -358,6 +416,45 @@ function AssetPageInner() {
           refresh();
         }}
       />
+
+      {editingTx ? (
+        <TxEditDialog
+          tx={editingTx}
+          onClose={() => setEditingTx(null)}
+          onSaved={() => {
+            setEditingTx(null);
+            afterTxChange();
+          }}
+        />
+      ) : null}
+
+      <Dialog open={!!deletingTx} onClose={() => setDeletingTx(null)} title={t("common.confirmDelete")}>
+        <p className="text-sm text-muted">
+          {deletingTx
+            ? `${deletingTx.side === "buy" ? t("common.buy") : t("common.sell")} ${deletingTx.ticker} — ${fmtQty(deletingTx.quantity)} × ${fmtEur(deletingTx.price)} (${fmtDate(deletingTx.txDate)})`
+            : ""}
+        </p>
+        <div className="mt-4 flex justify-end gap-2">
+          <Button variant="ghost" onClick={() => setDeletingTx(null)}>
+            {t("common.cancel")}
+          </Button>
+          <Button variant="danger" onClick={removeTx}>
+            {t("common.delete")}
+          </Button>
+        </div>
+      </Dialog>
+
+      <Dialog open={deletePosOpen} onClose={() => setDeletePosOpen(false)} title={t("asset.deletePosition")}>
+        <p className="text-sm text-muted">{t("pf.deleteConfirm", { ticker })}</p>
+        <div className="mt-4 flex justify-end gap-2">
+          <Button variant="ghost" onClick={() => setDeletePosOpen(false)}>
+            {t("common.cancel")}
+          </Button>
+          <Button variant="danger" onClick={removePosition}>
+            {t("common.delete")}
+          </Button>
+        </div>
+      </Dialog>
     </div>
   );
 }

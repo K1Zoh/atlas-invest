@@ -1,14 +1,17 @@
 "use client";
 
-import { AlertTriangle, ArrowUpDown, Bitcoin, CandlestickChart } from "lucide-react";
+import { AlertTriangle, ArrowUpDown, Bitcoin, CandlestickChart, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { Sparkline } from "@/components/charts";
 import { usePortfolio } from "@/components/portfolio-context";
-import { Card, EmptyState, PctBadge, Segmented, Skeleton } from "@/components/ui";
+import { useRefresh, useToast } from "@/components/providers";
+import { IconBtn } from "@/components/tx-edit-dialog";
+import { Button, Card, Dialog, EmptyState, PctBadge, Segmented, Skeleton } from "@/components/ui";
 import { fmtEur, fmtQty } from "@/lib/format";
 import { useI18n } from "@/lib/i18n";
 import type { PositionView } from "@/lib/types";
+import { postJson } from "@/lib/use-api";
 import { cn } from "@/lib/utils";
 
 type Filter = "all" | "stock" | "crypto";
@@ -17,10 +20,29 @@ type SortKey = "value" | "pnlPct" | "dayChangePct" | "weightPct";
 export default function PortfolioPage() {
   const { t } = useI18n();
   const { data, loading } = usePortfolio();
+  const { refresh } = useRefresh();
+  const { toast } = useToast();
   const router = useRouter();
   const [filter, setFilter] = useState<Filter>("all");
   const [sortKey, setSortKey] = useState<SortKey>("value");
   const [sortDesc, setSortDesc] = useState(true);
+  const [deleting, setDeleting] = useState<PositionView | null>(null);
+
+  const removePosition = async () => {
+    if (!deleting) return;
+    try {
+      await postJson(
+        `/api/transactions?ticker=${encodeURIComponent(deleting.ticker)}&class=${deleting.assetClass}`,
+        undefined,
+        "DELETE",
+      );
+      toast(t("pf.deleteOk"));
+      setDeleting(null);
+      refresh();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : String(e), "error");
+    }
+  };
 
   const rows = useMemo(() => {
     let views = data?.views ?? [];
@@ -85,6 +107,7 @@ export default function PortfolioPage() {
               v={v}
               index={i}
               onOpen={() => router.push(`/actif/${encodeURIComponent(v.ticker)}?class=${v.assetClass}`)}
+              onDelete={() => setDeleting(v)}
             />
           ))}
           <div className="mt-1 flex items-center justify-between rounded-xl border border-border bg-surface-2/40 px-4 py-2.5 text-xs font-semibold">
@@ -110,13 +133,18 @@ export default function PortfolioPage() {
                 <SortableTh label={t("pf.perf")} onClick={() => toggleSort("pnlPct")} active={sortKey === "pnlPct"} />
                 <SortableTh label={t("dash.day")} onClick={() => toggleSort("dayChangePct")} active={sortKey === "dayChangePct"} />
                 <SortableTh label={t("pf.weight")} onClick={() => toggleSort("weightPct")} active={sortKey === "weightPct"} />
+                <th className="px-3 py-3" />
               </tr>
             </thead>
             <tbody>
               {rows.map((v, i) => (
-                <Row key={`${v.assetClass}:${v.ticker}`} v={v} index={i} onOpen={() =>
-                  router.push(`/actif/${encodeURIComponent(v.ticker)}?class=${v.assetClass}`)
-                } />
+                <Row
+                  key={`${v.assetClass}:${v.ticker}`}
+                  v={v}
+                  index={i}
+                  onOpen={() => router.push(`/actif/${encodeURIComponent(v.ticker)}?class=${v.assetClass}`)}
+                  onDelete={() => setDeleting(v)}
+                />
               ))}
             </tbody>
             <tfoot>
@@ -135,45 +163,79 @@ export default function PortfolioPage() {
                     </span>
                   </div>
                 </td>
-                <td colSpan={2} />
+                <td colSpan={3} />
               </tr>
             </tfoot>
           </table>
         </Card>
         </>
       )}
+
+      <Dialog open={!!deleting} onClose={() => setDeleting(null)} title={t("pf.deletePosition")}>
+        <p className="text-sm text-muted">
+          {deleting
+            ? t("pf.deleteConfirm", { ticker: deleting.ticker })
+            : ""}
+        </p>
+        <div className="mt-4 flex justify-end gap-2">
+          <Button variant="ghost" onClick={() => setDeleting(null)}>
+            {t("common.cancel")}
+          </Button>
+          <Button variant="danger" onClick={removePosition}>
+            {t("common.delete")}
+          </Button>
+        </div>
+      </Dialog>
     </div>
   );
 }
 
-function PositionCard({ v, index, onOpen }: { v: PositionView; index: number; onOpen: () => void }) {
+function PositionCard({
+  v,
+  index,
+  onOpen,
+  onDelete,
+}: {
+  v: PositionView;
+  index: number;
+  onOpen: () => void;
+  onDelete: () => void;
+}) {
+  const { t } = useI18n();
   return (
-    <button
-      onClick={onOpen}
-      className="fade-up flex w-full cursor-pointer items-center justify-between gap-3 rounded-xl border border-border bg-surface/80 px-4 py-3 text-left transition-colors hover:border-accent/35"
+    <div
+      className="fade-up flex items-center gap-1 rounded-xl border border-border bg-surface/80 pr-2 transition-colors hover:border-accent/35"
       style={{ animationDelay: `${Math.min(index * 30, 300)}ms` }}
     >
-      <div className="flex min-w-0 items-center gap-3">
-        <span
-          className={cn(
-            "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg",
-            v.assetClass === "crypto" ? "bg-warning-soft text-warning" : "bg-accent-2/10 text-accent-2",
-          )}
-        >
-          {v.assetClass === "crypto" ? <Bitcoin className="h-4 w-4" /> : <CandlestickChart className="h-4 w-4" />}
-        </span>
-        <div className="min-w-0">
-          <p className="font-mono text-sm font-bold">{v.ticker}</p>
-          <p className="tnum text-xs text-muted">
-            {fmtQty(v.quantity)} · {fmtEur(v.price)}
-          </p>
+      <button
+        onClick={onOpen}
+        className="flex flex-1 cursor-pointer items-center justify-between gap-3 px-4 py-3 text-left"
+      >
+        <div className="flex min-w-0 items-center gap-3">
+          <span
+            className={cn(
+              "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg",
+              v.assetClass === "crypto" ? "bg-warning-soft text-warning" : "bg-accent-2/10 text-accent-2",
+            )}
+          >
+            {v.assetClass === "crypto" ? <Bitcoin className="h-4 w-4" /> : <CandlestickChart className="h-4 w-4" />}
+          </span>
+          <div className="min-w-0">
+            <p className="font-mono text-sm font-bold">{v.ticker}</p>
+            <p className="tnum text-xs text-muted">
+              {fmtQty(v.quantity)} · {fmtEur(v.price)}
+            </p>
+          </div>
         </div>
-      </div>
-      <div className="flex shrink-0 flex-col items-end gap-1">
-        <span className="tnum text-sm font-semibold">{fmtEur(v.value)}</span>
-        <PctBadge value={v.pnlPct} />
-      </div>
-    </button>
+        <div className="flex shrink-0 flex-col items-end gap-1">
+          <span className="tnum text-sm font-semibold">{fmtEur(v.value)}</span>
+          <PctBadge value={v.pnlPct} />
+        </div>
+      </button>
+      <IconBtn label={t("pf.deletePosition")} danger onClick={onDelete}>
+        <Trash2 className="h-4 w-4" />
+      </IconBtn>
+    </div>
   );
 }
 
@@ -202,7 +264,17 @@ function SortableTh({
   );
 }
 
-function Row({ v, index, onOpen }: { v: PositionView; index: number; onOpen: () => void }) {
+function Row({
+  v,
+  index,
+  onOpen,
+  onDelete,
+}: {
+  v: PositionView;
+  index: number;
+  onOpen: () => void;
+  onDelete: () => void;
+}) {
   const { t } = useI18n();
   return (
     <tr
@@ -257,7 +329,7 @@ function Row({ v, index, onOpen }: { v: PositionView; index: number; onOpen: () 
       <td className="px-3 py-3 text-right">
         <PctBadge value={v.dayChangePct} />
       </td>
-      <td className="tnum px-3 py-3 pr-5 text-right text-xs">
+      <td className="tnum px-3 py-3 text-right text-xs">
         {v.weightPct !== null ? (
           <div className="flex items-center justify-end gap-2">
             <div className="h-1.5 w-12 overflow-hidden rounded-full bg-surface-2">
@@ -271,6 +343,11 @@ function Row({ v, index, onOpen }: { v: PositionView; index: number; onOpen: () 
         ) : (
           "—"
         )}
+      </td>
+      <td className="px-3 py-3 pr-5 text-right" onClick={(e) => e.stopPropagation()}>
+        <IconBtn label={t("pf.deletePosition")} danger onClick={onDelete}>
+          <Trash2 className="h-3.5 w-3.5" />
+        </IconBtn>
       </td>
     </tr>
   );

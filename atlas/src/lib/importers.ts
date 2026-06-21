@@ -11,7 +11,14 @@ import type { AssetClass, TxSide } from "./types";
 
 const MAX_FILE_BYTES = 8 * 1024 * 1024;
 
-export type ExchangeId = "auto" | "kraken" | "revolut" | "binance" | "coinbase" | "generic";
+export type ExchangeId =
+  | "auto"
+  | "kraken"
+  | "revolut"
+  | "binance"
+  | "coinbase"
+  | "generic"
+  | "positions";
 
 export const EXCHANGES: { id: ExchangeId; label: string }[] = [
   { id: "auto", label: "Détection automatique" },
@@ -703,6 +710,160 @@ function extractGeneric(rows: string[][], assetClass: AssetClass): ExtractResult
   return { rows: out, errors: [] };
 }
 
+// ── Positions list (quick bootstrap) ─────────────────────────────────────────
+// A plain holdings list — ticker, quantity, average price — with no trade
+// history. Each row becomes a single seed "buy" transaction so the position's
+// quantity, average cost (PRU) and invested amount come out exact. Built to be
+// pasted (often AI-generated) and very forgiving on column names. Date is not
+// required: a global "as of" date is applied unless a row carries its own.
+
+const POSITION_ALIASES: Record<string, string[]> = {
+  ticker: ["ticker", "symbol", "symbole", "asset", "coin", "actif"],
+  name: ["name", "nom", "libelle", "libellé"],
+  assetClass: ["asset_class", "class", "classe", "type", "type_actif", "categorie", "catégorie"],
+  quantity: ["quantity", "qty", "quantité", "quantite", "amount", "shares", "parts", "units", "nombre", "volume"],
+  price: [
+    "average_price", "avg_price", "average price", "avg price", "avg cost", "average cost",
+    "pru", "prix moyen", "prix de revient", "prix d'achat", "prix achat", "cost", "cost basis",
+    "buy price", "prix unitaire", "unit price", "cours", "prix", "price",
+  ],
+  platform: ["platform", "plateforme", "exchange", "broker", "courtier"],
+  date: ["date", "buy date", "date d'achat", "acquired", "acquisition"],
+};
+
+function resolvePositionCol(header: string[], field: string): number {
+  for (const alias of POSITION_ALIASES[field] ?? []) {
+    const i = header.indexOf(alias);
+    if (i !== -1) return i;
+  }
+  return -1;
+}
+
+const TICKER_RE = /^[A-Z0-9.\-^]{1,12}$/;
+function classFromText(raw: string): AssetClass | null {
+  const s = raw.trim().toLowerCase();
+  if (s.startsWith("crypto")) return "crypto";
+  if (s.startsWith("stock") || s.startsWith("action") || s.startsWith("etf") || s.startsWith("bourse"))
+    return "stock";
+  return null;
+}
+
+/**
+ * Parse one headerless positional row. Two layouts are accepted, told apart by
+ * whether the 2nd cell names an asset class:
+ *   ticker, class, quantity, average_price [, name, platform]
+ *   ticker, quantity, average_price [, name, platform]   (class = fallback)
+ */
+function parsePositionalRow(
+  cells: string[],
+  fallbackClass: AssetClass,
+  asOfDate: string,
+): ExtractedRow | null {
+  const ticker = (cells[0] ?? "").trim().toUpperCase();
+  if (!TICKER_RE.test(ticker)) return null;
+
+  const sniffed = classFromText(cells[1] ?? "");
+  const cls: AssetClass = sniffed ?? fallbackClass;
+  const base = sniffed ? 2 : 1; // first numeric column
+
+  const qty = num(cells[base] ?? "");
+  const price = num(cells[base + 1] ?? "");
+  if (!Number.isFinite(qty) || qty <= 0 || !Number.isFinite(price) || price < 0) return null;
+
+  return {
+    ticker,
+    name: (cells[base + 2] ?? "").trim() || ticker,
+    assetClass: cls,
+    side: "buy",
+    quantity: qty,
+    price,
+    fees: 0,
+    txDate: asOfDate,
+    platform: (cells[base + 3] ?? "").trim() || null,
+    coingeckoId: cls === "crypto" ? resolveCoingeckoId(ticker) : null,
+    extId: null,
+  };
+}
+
+function extractPositions(
+  rows: string[][],
+  assetClass: AssetClass,
+  asOfDate: string,
+): ExtractResult {
+  const header = lowerHeader(rows);
+  const iTicker = resolvePositionCol(header, "ticker");
+
+  // Headerless paste (often AI-generated): no recognizable header and the first
+  // cell already looks like a ticker. Parse every row positionally.
+  if (iTicker === -1 && TICKER_RE.test((rows[0]?.[0] ?? "").trim().toUpperCase())) {
+    const out: ExtractedRow[] = [];
+    for (const row of rows) {
+      const parsed = parsePositionalRow(row, assetClass, asOfDate);
+      if (parsed) out.push(parsed);
+    }
+    if (!out.length) {
+      return {
+        rows: [],
+        errors: [
+          "Aucune position lisible. Format attendu par ligne : ticker, classe, quantité, prix moyen (ex : BTC,crypto,0.5,38000).",
+        ],
+      };
+    }
+    return { rows: out, errors: [] };
+  }
+
+  // Header-based parsing (the downloadable template, or any labelled CSV).
+  const iName = resolvePositionCol(header, "name");
+  const iClass = resolvePositionCol(header, "assetClass");
+  const iQty = resolvePositionCol(header, "quantity");
+  const iPrice = resolvePositionCol(header, "price");
+  const iPlatform = resolvePositionCol(header, "platform");
+  const iDate = resolvePositionCol(header, "date");
+
+  const missing = [
+    ["Ticker", iTicker],
+    ["Quantité", iQty],
+    ["Prix moyen", iPrice],
+  ]
+    .filter(([, i]) => i === -1)
+    .map(([n]) => n as string);
+  if (missing.length) {
+    return {
+      rows: [],
+      errors: [
+        `Colonnes manquantes : ${missing.join(", ")}. Colonnes trouvées : ${header.join(", ")}. Format attendu : ticker, quantité, prix moyen (classe, nom, plateforme en option).`,
+      ],
+    };
+  }
+
+  const out: ExtractedRow[] = [];
+  for (const row of rows.slice(1)) {
+    const ticker = (row[iTicker] ?? "").trim().toUpperCase();
+    if (!ticker || !TICKER_RE.test(ticker)) continue;
+    const qty = num(row[iQty] ?? "");
+    const price = num(row[iPrice] ?? "");
+    if (!Number.isFinite(qty) || qty <= 0 || !Number.isFinite(price) || price < 0) continue;
+
+    const cls: AssetClass = (iClass !== -1 ? classFromText(row[iClass] ?? "") : null) ?? assetClass;
+    const rowDate = iDate !== -1 ? isoDate(row[iDate] ?? "") : null;
+
+    out.push({
+      ticker,
+      name: (iName !== -1 ? row[iName]?.trim() : "") || ticker,
+      assetClass: cls,
+      side: "buy",
+      quantity: qty,
+      price,
+      fees: 0,
+      txDate: rowDate ?? asOfDate,
+      platform: iPlatform !== -1 ? row[iPlatform]?.trim() || null : null,
+      coingeckoId: cls === "crypto" ? resolveCoingeckoId(ticker) : null,
+      extId: null,
+    });
+  }
+  return { rows: out, errors: [] };
+}
+
 // ── Public API ───────────────────────────────────────────────────────────────
 
 function fingerprint(r: { ticker: string; txDate: string; quantity: number; price: number; side: TxSide }): string {
@@ -722,7 +883,7 @@ function decodeFile(raw: Buffer): { text: string; error?: string } {
 /** Parse a file into a preview (no DB writes), assigning a dedup status per row. */
 export function previewImport(
   raw: Buffer,
-  opts: { exchange: ExchangeId; assetClass: AssetClass },
+  opts: { exchange: ExchangeId; assetClass: AssetClass; asOfDate?: string },
 ): PreviewResult {
   const { text, error } = decodeFile(raw);
   if (error) {
@@ -742,8 +903,16 @@ export function previewImport(
   const detected = detectExchange(csvRows);
   const exchange = opts.exchange === "auto" ? detected : opts.exchange;
 
+  // Global acquisition date for seeded positions (defaults to today).
+  const asOfDate = /^\d{4}-\d{2}-\d{2}$/.test(opts.asOfDate ?? "")
+    ? (opts.asOfDate as string)
+    : new Date().toISOString().slice(0, 10);
+
   let extracted: ExtractResult;
   switch (exchange) {
+    case "positions":
+      extracted = extractPositions(csvRows, opts.assetClass, asOfDate);
+      break;
     case "kraken":
       extracted = isKrakenLedgers(csvRows) ? extractKrakenLedgers(csvRows) : extractKraken(csvRows);
       break;
@@ -854,6 +1023,20 @@ export function buildTemplate(): string {
     "ETH,Ethereum,crypto,buy,1.2,2300,0.9,2024-02-03,Binance",
     "CW8,Amundi MSCI World,stock,buy,3,480.25,0,2024-03-10,Trade Republic",
     "SOL,Solana,crypto,sell,5,150,0.5,2024-04-22,Kraken",
+  ].join("\n");
+}
+
+/**
+ * Simple positions template (no history): one current holding per line, just
+ * ticker + quantity + average price. The fastest way to seed the app.
+ */
+export function buildPositionsTemplate(): string {
+  return [
+    "ticker,asset_class,quantity,average_price,name,platform",
+    "BTC,crypto,0.5,38000,Bitcoin,Kraken",
+    "ETH,crypto,4,2100,Ethereum,Binance",
+    "CW8,stock,3,480.25,Amundi MSCI World,Trade Republic",
+    "AAPL,stock,10,175.40,Apple,Revolut",
   ].join("\n");
 }
 

@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { bad, ok, oops } from "@/lib/api-helpers";
-import { addTransaction, listTransactions, type NewTransaction } from "@/lib/repo";
+import { addTransaction, deletePosition, listTransactions, type NewTransaction } from "@/lib/repo";
 import type { AssetClass } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -30,6 +30,21 @@ export async function POST(req: NextRequest) {
 
     const id = addTransaction(body as NewTransaction);
     return ok({ id });
+  } catch (e) {
+    return oops(e);
+  }
+}
+
+/** Delete a whole position (all transactions for a ticker + class). */
+export async function DELETE(req: NextRequest) {
+  try {
+    const ticker = req.nextUrl.searchParams.get("ticker");
+    const assetClass = req.nextUrl.searchParams.get("class") as AssetClass | null;
+    // Both are required: never allow a blanket delete of every transaction.
+    if (!ticker?.trim()) return bad("ticker requis");
+    if (assetClass !== "stock" && assetClass !== "crypto") return bad("classe requise (stock/crypto)");
+    const deleted = deletePosition(ticker, assetClass);
+    return ok({ deleted });
   } catch (e) {
     return oops(e);
   }

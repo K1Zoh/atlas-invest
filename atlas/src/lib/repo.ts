@@ -154,6 +154,18 @@ export function deleteTransaction(id: number): void {
   getDb().prepare("DELETE FROM transactions WHERE id = ?").run(id);
 }
 
+/**
+ * Delete a whole position: every transaction for a ticker + asset class.
+ * Used to remove a holding entered by mistake or misconfigured. Returns the
+ * number of transactions removed.
+ */
+export function deletePosition(ticker: string, assetClass: AssetClass): number {
+  const res = getDb()
+    .prepare("DELETE FROM transactions WHERE ticker = ? AND asset_class = ?")
+    .run(ticker.toUpperCase().trim(), assetClass);
+  return res.changes;
+}
+
 export function listTransactions(filter?: {
   ticker?: string;
   assetClass?: AssetClass;
