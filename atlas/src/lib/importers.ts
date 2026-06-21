@@ -678,6 +678,7 @@ function extractGeneric(rows: string[][], assetClass: AssetClass): ExtractResult
   }
 
   const out: ExtractedRow[] = [];
+  let skippedNoDate = 0;
   for (const row of rows.slice(1)) {
     const ticker = (row[iTicker] ?? "").trim().toUpperCase();
     if (!ticker || !/^[A-Z0-9.\-^]{1,12}$/.test(ticker)) continue;
@@ -687,6 +688,12 @@ function extractGeneric(rows: string[][], assetClass: AssetClass): ExtractResult
     const fees = iFees !== -1 ? num(row[iFees] ?? "0") || 0 : 0;
     const sideRaw = iSide !== -1 ? (row[iSide] ?? "").toUpperCase() : "BUY";
     const side: TxSide = sideRaw.includes("SELL") || sideRaw.includes("VENTE") ? "sell" : "buy";
+    // A row that is otherwise valid but has no date is the classic silent drop:
+    // count it so we can tell the user instead of importing nothing in silence.
+    if (!date && Number.isFinite(qty) && qty > 0 && Number.isFinite(price) && price > 0) {
+      skippedNoDate++;
+      continue;
+    }
     if (!date || !Number.isFinite(qty) || qty <= 0 || !Number.isFinite(price) || price <= 0) continue;
 
     const rowClassRaw = iClass !== -1 ? (row[iClass] ?? "").trim().toLowerCase() : "";
@@ -707,7 +714,14 @@ function extractGeneric(rows: string[][], assetClass: AssetClass): ExtractResult
       extId: null,
     });
   }
-  return { rows: out, errors: [] };
+
+  const errors: string[] = [];
+  if (skippedNoDate > 0) {
+    errors.push(
+      `${skippedNoDate} ligne(s) ignorée(s) faute de date : ce format exige une date par ligne. Ajoute une date à chaque ligne, ou utilise le mode « Liste de positions » (qui n'a pas besoin de date).`,
+    );
+  }
+  return { rows: out, errors };
 }
 
 // ── Positions list (quick bootstrap) ─────────────────────────────────────────
