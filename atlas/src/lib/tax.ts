@@ -20,7 +20,9 @@ function sortedTxs(assetClass: "stock" | "crypto"): Transaction[] {
 }
 
 export function computeStockRealized(year?: number): RealizedLine[] {
-  const txs = sortedTxs("stock");
+  // Les cessions à l'intérieur d'un PEA ne déclenchent pas le PFU (l'imposition
+  // n'intervient qu'au retrait) : elles sortent du calcul actions/CTO.
+  const txs = sortedTxs("stock").filter((t) => t.account !== "pea");
   const basis = new Map<string, { qty: number; cost: number }>();
   const lines: RealizedLine[] = [];
 

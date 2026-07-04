@@ -2,6 +2,9 @@ export type AssetClass = "stock" | "crypto";
 
 export type TxSide = "buy" | "sell";
 
+/** Fiscal envelope for stock/ETF lines: French PEA or ordinary brokerage (CTO). */
+export type AccountType = "pea" | "cto";
+
 export interface Transaction {
   id: number;
   ticker: string;
@@ -13,6 +16,7 @@ export interface Transaction {
   fees: number;
   txDate: string; // YYYY-MM-DD
   platform: string | null;
+  account: AccountType | null;
   coingeckoId: string | null;
   note: string | null;
   createdAt: string;
@@ -27,6 +31,7 @@ export interface Position {
   invested: number; // current cost basis in EUR
   realizedPnl: number;
   platform: string | null;
+  account: AccountType | null;
   coingeckoId: string | null;
   firstBuy: string;
 }

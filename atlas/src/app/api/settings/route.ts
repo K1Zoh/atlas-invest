@@ -19,6 +19,8 @@ const EDITABLE_KEYS = [
   "smtp.to",
   "rebalance.target_crypto",
   "rebalance.contribution",
+  "pea.opened_at",
+  "pea.deposits",
 ];
 
 export async function GET() {

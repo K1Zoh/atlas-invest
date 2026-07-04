@@ -11,6 +11,7 @@ const fr = {
   "nav.transactions": "Transactions",
   "nav.watchlist": "Watchlist",
   "nav.ai": "Copilote IA",
+  "nav.pea": "PEA",
   "nav.tax": "Fiscal",
   "nav.settings": "Paramètres",
 
@@ -340,6 +341,68 @@ const fr = {
   "qa.saveDca": "Enregistrer comme DCA",
   "qa.dcaSaved": "Plan DCA enregistré",
   "qa.dcaRemoved": "Plan DCA retiré",
+
+  // Fiscal envelope (PEA / CTO)
+  "common.account": "Enveloppe",
+  "common.pea": "PEA",
+  "common.cto": "CTO",
+  "tax.peaNote":
+    "Les cessions réalisées à l'intérieur du PEA ne déclenchent pas le PFU : elles sont exclues de ce tableau. Voir la page PEA pour sa fiscalité propre.",
+  "set.import.account": "Enveloppe (actions/ETF)",
+  "set.import.account.none": "— (non précisée)",
+
+  // Symbol mapping (broker codes -> Yahoo)
+  "set.symbolMap.title": "Correspondance des tickers",
+  "set.symbolMap.hint":
+    "Les codes ETF varient selon les courtiers (VUAA, 36B5…). Atlas cherche automatiquement la bonne place de cotation Yahoo et mémorise le résultat. Si un cours reste introuvable ou faux après un import, corrige la correspondance ici.",
+  "set.symbolMap.ticker": "Code courtier",
+  "set.symbolMap.symbol": "Symbole Yahoo (ex : VUAA.DE)",
+  "set.symbolMap.add": "Associer",
+  "set.symbolMap.saved": "Correspondance enregistrée : {ticker} → {symbol}",
+  "set.symbolMap.deleted": "Correspondance supprimée",
+  "set.symbolMap.empty": "Aucune correspondance enregistrée pour l'instant.",
+  "set.symbolMap.source.auto": "auto",
+  "set.symbolMap.source.manual": "manuel",
+  "set.symbolMap.source.builtin": "intégré",
+
+  // PEA page
+  "pea.title": "PEA",
+  "pea.subtitle": "Ton plan d'épargne en actions : valeur, plafond et fiscalité",
+  "pea.value": "Valeur du PEA",
+  "pea.invested": "Investi (PRU)",
+  "pea.pnl": "P/L latent",
+  "pea.weight": "Part du patrimoine",
+  "pea.positions": "Positions dans le PEA",
+  "pea.noPositions":
+    "Aucune position marquée PEA pour l'instant. Clique sur « Gérer les positions » pour indiquer quels ETF et actions sont logés dans ton PEA.",
+  "pea.manage": "Gérer les positions",
+  "pea.manageHint":
+    "Coche les actions/ETF logés dans ton PEA. Le marquage s'applique à toute la position (toutes ses transactions).",
+  "pea.ceiling": "Plafond des versements",
+  "pea.ceilingHint": "Plafond légal : 150 000 € de versements (les gains ne comptent pas).",
+  "pea.deposits": "Versements estimés",
+  "pea.depositsEstimate": "Estimation = somme de tes achats PEA (frais inclus). Corrige-la si besoin.",
+  "pea.depositsOverride": "Versements réels (€, optionnel)",
+  "pea.remaining": "Marge restante",
+  "pea.openedAt": "Date d'ouverture du PEA",
+  "pea.setOpenedAt": "Renseigne la date d'ouverture pour suivre le cap des 5 ans.",
+  "pea.maturity": "Cap des 5 ans",
+  "pea.matureSince":
+    "PEA mûr depuis le {date} : retraits possibles sans clôturer le plan, gains exonérés d'impôt sur le revenu (restent 17,2 % de prélèvements sociaux).",
+  "pea.matureOn":
+    "PEA mûr le {date}. Avant cette date, un retrait clôture le plan (sauf exceptions) et les gains sont imposés au PFU 30 %.",
+  "pea.tax.title": "Fiscalité du PEA",
+  "pea.tax.line1":
+    "Tant que l'argent reste dans le plan : aucune imposition sur les ventes ni les dividendes — tu peux arbitrer librement.",
+  "pea.tax.line2":
+    "Après 5 ans : retraits sans clôture, gains exonérés d'IR. Seuls les prélèvements sociaux (17,2 %) restent dus.",
+  "pea.tax.line3":
+    "Avant 5 ans : un retrait entraîne la clôture du plan et les gains subissent 12,8 % d'IR + 17,2 % de PS (30 %).",
+  "pea.tax.socialOnly": "PS sur gain latent (17,2 %)",
+  "pea.tax.savedVsCto": "Économie d'IR vs CTO (12,8 %)",
+  "pea.eligibility":
+    "Rappel : seuls les titres éligibles peuvent y être logés — actions de l'UE/EEE et ETF éligibles PEA (dont des ETF Monde ou S&P 500 synthétiques).",
+  "pea.saved": "Réglages PEA enregistrés",
 } as const;
 
 export type TKey = keyof typeof fr;
@@ -350,6 +413,7 @@ const en: Record<TKey, string> = {
   "nav.transactions": "Transactions",
   "nav.watchlist": "Watchlist",
   "nav.ai": "AI Copilot",
+  "nav.pea": "PEA",
   "nav.tax": "Taxes",
   "nav.settings": "Settings",
 
@@ -666,6 +730,68 @@ const en: Record<TKey, string> = {
   "qa.saveDca": "Save as DCA",
   "qa.dcaSaved": "DCA plan saved",
   "qa.dcaRemoved": "DCA plan removed",
+
+  // Fiscal envelope (PEA / CTO)
+  "common.account": "Account",
+  "common.pea": "PEA",
+  "common.cto": "Brokerage",
+  "tax.peaNote":
+    "Disposals inside the PEA do not trigger the flat tax: they are excluded from this table. See the PEA page for its own tax rules.",
+  "set.import.account": "Account (stocks/ETF)",
+  "set.import.account.none": "— (unspecified)",
+
+  // Symbol mapping (broker codes -> Yahoo)
+  "set.symbolMap.title": "Ticker mapping",
+  "set.symbolMap.hint":
+    "ETF codes differ across brokers (VUAA, 36B5…). Atlas automatically finds the right Yahoo listing and remembers it. If a price is still missing or wrong after an import, fix the mapping here.",
+  "set.symbolMap.ticker": "Broker code",
+  "set.symbolMap.symbol": "Yahoo symbol (e.g. VUAA.DE)",
+  "set.symbolMap.add": "Map",
+  "set.symbolMap.saved": "Mapping saved: {ticker} → {symbol}",
+  "set.symbolMap.deleted": "Mapping removed",
+  "set.symbolMap.empty": "No mapping stored yet.",
+  "set.symbolMap.source.auto": "auto",
+  "set.symbolMap.source.manual": "manual",
+  "set.symbolMap.source.builtin": "built-in",
+
+  // PEA page
+  "pea.title": "PEA",
+  "pea.subtitle": "Your French equity savings plan: value, ceiling and taxation",
+  "pea.value": "PEA value",
+  "pea.invested": "Invested (avg. cost)",
+  "pea.pnl": "Unrealized P/L",
+  "pea.weight": "Share of wealth",
+  "pea.positions": "Positions held in the PEA",
+  "pea.noPositions":
+    "No position tagged as PEA yet. Click “Manage positions” to mark which ETFs and stocks live inside your PEA.",
+  "pea.manage": "Manage positions",
+  "pea.manageHint":
+    "Tick the stocks/ETFs held in your PEA. The tag applies to the whole position (all of its transactions).",
+  "pea.ceiling": "Deposit ceiling",
+  "pea.ceilingHint": "Legal ceiling: €150,000 of deposits (gains don't count).",
+  "pea.deposits": "Estimated deposits",
+  "pea.depositsEstimate": "Estimate = sum of your PEA purchases (fees included). Adjust it if needed.",
+  "pea.depositsOverride": "Actual deposits (€, optional)",
+  "pea.remaining": "Remaining headroom",
+  "pea.openedAt": "PEA opening date",
+  "pea.setOpenedAt": "Set the opening date to track the 5-year milestone.",
+  "pea.maturity": "5-year milestone",
+  "pea.matureSince":
+    "PEA mature since {date}: withdrawals no longer close the plan and gains are exempt from income tax (17.2% social levies still apply).",
+  "pea.matureOn":
+    "PEA matures on {date}. Before that date a withdrawal closes the plan (few exceptions) and gains face the 30% flat tax.",
+  "pea.tax.title": "PEA taxation",
+  "pea.tax.line1":
+    "While the money stays in the plan: no tax on sales or dividends — rebalance freely.",
+  "pea.tax.line2":
+    "After 5 years: withdrawals without closing, gains exempt from income tax. Only 17.2% social levies remain.",
+  "pea.tax.line3":
+    "Before 5 years: a withdrawal closes the plan and gains face 12.8% income tax + 17.2% levies (30%).",
+  "pea.tax.socialOnly": "Levies on unrealized gain (17.2%)",
+  "pea.tax.savedVsCto": "Income tax saved vs brokerage (12.8%)",
+  "pea.eligibility":
+    "Reminder: only eligible securities can live inside — EU/EEA stocks and PEA-eligible ETFs (incl. synthetic World or S&P 500 ETFs).",
+  "pea.saved": "PEA settings saved",
 };
 
 const DICTS: Record<Lang, Record<TKey, string>> = { fr, en };

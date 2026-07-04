@@ -121,6 +121,16 @@ export async function getQuotes(
           writeCache(quote);
           cached.set(keyOf(a), { ...quote, spark7d: cached.get(keyOf(a))?.spark7d ?? null });
         }
+        // Symbols Yahoo couldn't resolve at all (broker-specific ETF codes):
+        // say it explicitly instead of leaving a silent hole in the dashboard.
+        const unresolved = staleStocks
+          .filter((a) => !yq.has(a.ticker.toUpperCase()) && !cached.has(keyOf(a)))
+          .map((a) => a.ticker.toUpperCase());
+        if (unresolved.length) {
+          errors.push(
+            `Cours introuvable pour ${unresolved.join(", ")} — associe chaque code à un symbole Yahoo dans Paramètres → Correspondance des tickers.`,
+          );
+        }
       } catch (e) {
         errors.push(`Actions : ${e instanceof Error ? e.message : String(e)}`);
       }

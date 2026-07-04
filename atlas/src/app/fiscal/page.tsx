@@ -75,7 +75,7 @@ export default function TaxPage() {
 
           {data!.stock.lines.length ? (
             <Card className="fade-up overflow-x-auto pb-1">
-              <CardHeader title={t("tax.stocks")} />
+              <CardHeader title={t("tax.stocks")} subtitle={t("tax.peaNote")} />
               <RealizedTable lines={data!.stock.lines} />
             </Card>
           ) : null}

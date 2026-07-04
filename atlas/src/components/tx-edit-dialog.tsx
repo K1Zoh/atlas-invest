@@ -54,6 +54,7 @@ export function TxEditDialog({
   const [fees, setFees] = useState(String(tx.fees));
   const [date, setDate] = useState(tx.txDate);
   const [platform, setPlatform] = useState(tx.platform ?? "");
+  const [account, setAccount] = useState<string>(tx.account ?? "");
   const [note, setNote] = useState(tx.note ?? "");
   const [saving, setSaving] = useState(false);
 
@@ -69,6 +70,7 @@ export function TxEditDialog({
           fees: parseFloat(fees.replace(",", ".")) || 0,
           txDate: date,
           platform: platform || null,
+          account: tx.assetClass === "stock" ? account || null : null,
           note: note.trim() || null,
         },
         "PATCH",
@@ -106,6 +108,15 @@ export function TxEditDialog({
         <Field label={t("common.platform")}>
           <Input value={platform} onChange={(e) => setPlatform(e.target.value)} />
         </Field>
+        {tx.assetClass === "stock" ? (
+          <Field label={t("common.account")}>
+            <Select value={account} onChange={(e) => setAccount(e.target.value)}>
+              <option value="">—</option>
+              <option value="cto">{t("common.cto")}</option>
+              <option value="pea">{t("common.pea")}</option>
+            </Select>
+          </Field>
+        ) : null}
         <Field label={t("common.note")} className="col-span-2">
           <Input value={note} onChange={(e) => setNote(e.target.value)} />
         </Field>

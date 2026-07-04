@@ -34,6 +34,7 @@ const PLATFORMS = [
 ];
 
 const LAST_PLATFORM_KEY = "atlas.lastPlatform";
+const LAST_ACCOUNT_KEY = "atlas.lastAccount";
 
 const num = (v: string) => parseFloat(v.replace(",", "."));
 const trimQty = (v: number) => String(Math.round(v * 1e8) / 1e8);
@@ -69,6 +70,7 @@ export function QuickAdd() {
   const [date, setDate] = useState(todayIso());
   const [fees, setFees] = useState("0");
   const [platform, setPlatform] = useState("");
+  const [account, setAccount] = useState<"" | "pea" | "cto">("");
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
   const [watchSaving, setWatchSaving] = useState(false);
@@ -90,6 +92,8 @@ export function QuickAdd() {
     setNote("");
     setHighlight(0);
     setPlatform(window.localStorage.getItem(LAST_PLATFORM_KEY) ?? "");
+    const lastAccount = window.localStorage.getItem(LAST_ACCOUNT_KEY);
+    setAccount(lastAccount === "pea" || lastAccount === "cto" ? lastAccount : "");
   }, []);
 
   // Global shortcuts: ⌘K / Ctrl+K and the custom open event.
@@ -336,10 +340,12 @@ export function QuickAdd() {
         fees: num(fees) || 0,
         txDate: date,
         platform: platform || null,
+        account: selected.assetClass === "stock" ? account || null : null,
         coingeckoId: selected.coingeckoId,
         note: note.trim() || null,
       });
       if (platform) window.localStorage.setItem(LAST_PLATFORM_KEY, platform);
+      if (selected.assetClass === "stock") window.localStorage.setItem(LAST_ACCOUNT_KEY, account);
       toast(t("qa.txAdded"));
       setOpen(false);
       reset();
@@ -579,6 +585,19 @@ export function QuickAdd() {
                 ))}
               </select>
             </Field>
+            {selected.assetClass === "stock" ? (
+              <Field label={t("common.account")} className="col-span-2">
+                <Segmented<"" | "cto" | "pea">
+                  options={[
+                    { value: "", label: "—" },
+                    { value: "cto", label: t("common.cto") },
+                    { value: "pea", label: t("common.pea") },
+                  ]}
+                  value={account}
+                  onChange={setAccount}
+                />
+              </Field>
+            ) : null}
             <Field label={`${t("qa.thesis")} (${t("common.optional")})`} className="col-span-2">
               <textarea
                 value={note}

@@ -26,6 +26,8 @@ export async function POST(req: NextRequest) {
     if (!body.quantity || body.quantity <= 0) errors.push("quantité invalide");
     if (body.price === undefined || body.price < 0) errors.push("prix invalide");
     if (!body.txDate || !/^\d{4}-\d{2}-\d{2}$/.test(body.txDate)) errors.push("date invalide");
+    if (body.account != null && body.account !== "pea" && body.account !== "cto")
+      errors.push("compte invalide (pea/cto)");
     if (errors.length) return bad(errors.join(", "));
 
     const id = addTransaction(body as NewTransaction);

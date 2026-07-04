@@ -103,6 +103,14 @@ CREATE TABLE IF NOT EXISTS history_cache (
   payload    TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS symbol_map (
+  ticker        TEXT PRIMARY KEY,
+  yahoo_symbol  TEXT NOT NULL,
+  name          TEXT,
+  source        TEXT NOT NULL DEFAULT 'auto',
+  updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
 `;
 
 /** Idempotent migrations applied after the base schema. */
@@ -114,6 +122,10 @@ function migrate(db: Database.Database): void {
     db.exec("ALTER TABLE transactions ADD COLUMN ext_id TEXT");
   }
   db.exec("CREATE INDEX IF NOT EXISTS idx_tx_ext ON transactions (ext_id)");
+  // account: fiscal envelope for stock/ETF lines ('pea' or 'cto', NULL = unknown/CTO).
+  if (!cols.some((c) => c.name === "account")) {
+    db.exec("ALTER TABLE transactions ADD COLUMN account TEXT");
+  }
 }
 
 function createDb(): Database.Database {

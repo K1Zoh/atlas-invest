@@ -1,6 +1,6 @@
 "use client";
 
-import { Bell, Bot, Database, Download, FileSearch, Palette, Upload } from "lucide-react";
+import { Bell, Bot, Database, Download, FileSearch, Link2, Palette, Trash2, Upload } from "lucide-react";
 import { useTheme } from "next-themes";
 import { useEffect, useRef, useState } from "react";
 import { useRefresh, useToast } from "@/components/providers";
@@ -281,6 +281,7 @@ interface PreviewRow {
   fees: number;
   txDate: string;
   platform: string | null;
+  account: string | null;
   coingeckoId: string | null;
   extId: string | null;
   fingerprint: string;
@@ -318,6 +319,7 @@ function ImportSection() {
   const [mode, setMode] = useState<"positions" | "broker">("positions");
   const [exchange, setExchange] = useState("auto");
   const [importClass, setImportClass] = useState<"stock" | "crypto">("crypto");
+  const [account, setAccount] = useState("");
   const [pasteText, setPasteText] = useState("");
   const [asOfDate, setAsOfDate] = useState(todayIso());
   const [analyzing, setAnalyzing] = useState(false);
@@ -332,6 +334,7 @@ function ImportSection() {
       form.set("exchange", "positions");
       form.set("assetClass", importClass);
       form.set("asOfDate", asOfDate);
+      form.set("account", account);
       const file = fileRef.current?.files?.[0];
       if (file) form.set("file", file);
       else if (pasteText.trim()) form.set("text", pasteText);
@@ -349,6 +352,7 @@ function ImportSection() {
       form.set("file", file);
       form.set("exchange", exchange);
       form.set("assetClass", importClass);
+      form.set("account", account);
     }
 
     setAnalyzing(true);
@@ -462,6 +466,16 @@ function ImportSection() {
                 className="w-44"
               />
             </label>
+            {importClass === "stock" ? (
+              <label className="flex flex-col gap-1">
+                <span className="text-[11px] font-medium text-muted">{t("set.import.account")}</span>
+                <Select value={account} onChange={(e) => setAccount(e.target.value)} className="w-40">
+                  <option value="">{t("set.import.account.none")}</option>
+                  <option value="cto">{t("common.cto")}</option>
+                  <option value="pea">{t("common.pea")}</option>
+                </Select>
+              </label>
+            ) : null}
           </div>
 
           <textarea
@@ -526,6 +540,16 @@ function ImportSection() {
                 >
                   <option value="crypto">{t("common.crypto")}</option>
                   <option value="stock">{t("common.stocks")}</option>
+                </Select>
+              </label>
+            ) : null}
+            {exchange === "auto" || exchange === "revolut" || exchange === "generic" ? (
+              <label className="flex flex-col gap-1">
+                <span className="text-[11px] font-medium text-muted">{t("set.import.account")}</span>
+                <Select value={account} onChange={(e) => setAccount(e.target.value)} className="w-40">
+                  <option value="">{t("set.import.account.none")}</option>
+                  <option value="cto">{t("common.cto")}</option>
+                  <option value="pea">{t("common.pea")}</option>
                 </Select>
               </label>
             ) : null}
@@ -711,6 +735,8 @@ function DataCard() {
       <div className="flex flex-col gap-6 px-5 pt-4">
         <ImportSection />
 
+        <SymbolMapSection />
+
         <div className="border-t border-border/60 pt-5">
           <p className="text-sm font-medium">{t("set.legacy.title")}</p>
           <p className="mt-0.5 text-xs text-muted">{t("set.legacy.hint")}</p>
@@ -728,6 +754,125 @@ function DataCard() {
         <BackupSection />
       </div>
     </Card>
+  );
+}
+
+interface SymbolMapping {
+  ticker: string;
+  yahooSymbol: string;
+  name: string | null;
+  source: "builtin" | "auto" | "manual";
+}
+
+/** Broker code -> Yahoo symbol mappings (view, correct, add). */
+function SymbolMapSection() {
+  const { t } = useI18n();
+  const { toast } = useToast();
+  const { refresh } = useRefresh();
+  const { data, reload } = useApi<{ mappings: SymbolMapping[] }>("/api/symbol-map");
+  const [ticker, setTicker] = useState("");
+  const [symbol, setSymbol] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const mappings = data?.mappings ?? [];
+
+  const add = async () => {
+    if (!ticker.trim() || !symbol.trim()) return;
+    setSaving(true);
+    try {
+      await postJson("/api/symbol-map", { ticker: ticker.trim(), yahooSymbol: symbol.trim() });
+      toast(t("set.symbolMap.saved", { ticker: ticker.trim().toUpperCase(), symbol: symbol.trim().toUpperCase() }));
+      setTicker("");
+      setSymbol("");
+      reload();
+      refresh(true); // re-quote with the corrected symbol
+    } catch (e) {
+      toast(e instanceof Error ? e.message : String(e), "error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const remove = async (tk: string) => {
+    try {
+      await fetch(`/api/symbol-map?ticker=${encodeURIComponent(tk)}`, { method: "DELETE" });
+      toast(t("set.symbolMap.deleted"), "info");
+      reload();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : String(e), "error");
+    }
+  };
+
+  return (
+    <div className="border-t border-border/60 pt-5">
+      <p className="flex items-center gap-2 text-sm font-medium">
+        <Link2 className="h-4 w-4 text-accent" /> {t("set.symbolMap.title")}
+      </p>
+      <p className="mt-0.5 text-xs leading-relaxed text-muted">{t("set.symbolMap.hint")}</p>
+
+      <div className="mt-3 flex flex-wrap items-end gap-2">
+        <label className="flex flex-col gap-1">
+          <span className="text-[11px] font-medium text-muted">{t("set.symbolMap.ticker")}</span>
+          <Input
+            value={ticker}
+            onChange={(e) => setTicker(e.target.value)}
+            placeholder="VUAA"
+            className="w-32 font-mono uppercase"
+          />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-[11px] font-medium text-muted">{t("set.symbolMap.symbol")}</span>
+          <Input
+            value={symbol}
+            onChange={(e) => setSymbol(e.target.value)}
+            placeholder="VUAA.DE"
+            className="w-40 font-mono uppercase"
+          />
+        </label>
+        <Button variant="outline" onClick={add} loading={saving} disabled={!ticker.trim() || !symbol.trim()}>
+          {t("set.symbolMap.add")}
+        </Button>
+      </div>
+
+      {mappings.length ? (
+        <div className="mt-3 max-h-56 overflow-y-auto rounded-lg border border-border/60">
+          <table className="w-full text-xs">
+            <tbody>
+              {mappings.map((m) => (
+                <tr key={m.ticker} className="border-t border-border/40 first:border-0">
+                  <td className="tnum px-3 py-1.5 font-mono font-semibold">{m.ticker}</td>
+                  <td className="px-2 py-1.5 text-muted">→</td>
+                  <td className="px-2 py-1.5 font-mono">{m.yahooSymbol}</td>
+                  <td className="max-w-44 truncate px-2 py-1.5 text-muted">{m.name ?? ""}</td>
+                  <td className="px-2 py-1.5">
+                    <Badge tone={m.source === "manual" ? "accent" : "neutral"}>
+                      {m.source === "manual"
+                        ? t("set.symbolMap.source.manual")
+                        : m.source === "auto"
+                          ? t("set.symbolMap.source.auto")
+                          : t("set.symbolMap.source.builtin")}
+                    </Badge>
+                  </td>
+                  <td className="px-2 py-1.5 text-right">
+                    {m.source !== "builtin" ? (
+                      <button
+                        onClick={() => remove(m.ticker)}
+                        aria-label={t("common.delete")}
+                        className="cursor-pointer rounded-md p-1 text-muted transition-colors hover:bg-danger-soft hover:text-danger"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    ) : null}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <p className="mt-3 text-xs text-muted">{t("set.symbolMap.empty")}</p>
+      )}
+    </div>
   );
 }
 

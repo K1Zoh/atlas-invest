@@ -6,6 +6,7 @@ import {
   Landmark,
   LayoutDashboard,
   Moon,
+  PiggyBank,
   Plus,
   RefreshCw,
   Search,
@@ -40,6 +41,7 @@ const NAV: { href: string; key: TKey; icon: React.ComponentType<{ className?: st
   { href: "/transactions", key: "nav.transactions", icon: ArrowLeftRight },
   { href: "/watchlist", key: "nav.watchlist", icon: Eye },
   { href: "/ia", key: "nav.ai", icon: Sparkles },
+  { href: "/pea", key: "nav.pea", icon: PiggyBank },
   { href: "/fiscal", key: "nav.tax", icon: Landmark },
   { href: "/parametres", key: "nav.settings", icon: Settings },
 ];

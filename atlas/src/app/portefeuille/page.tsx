@@ -14,7 +14,7 @@ import type { PositionView } from "@/lib/types";
 import { postJson } from "@/lib/use-api";
 import { cn } from "@/lib/utils";
 
-type Filter = "all" | "stock" | "crypto";
+type Filter = "all" | "stock" | "crypto" | "pea";
 type SortKey = "value" | "pnlPct" | "dayChangePct" | "weightPct";
 
 export default function PortfolioPage() {
@@ -46,7 +46,8 @@ export default function PortfolioPage() {
 
   const rows = useMemo(() => {
     let views = data?.views ?? [];
-    if (filter !== "all") views = views.filter((v) => v.assetClass === filter);
+    if (filter === "pea") views = views.filter((v) => v.account === "pea");
+    else if (filter !== "all") views = views.filter((v) => v.assetClass === filter);
     return [...views].sort((a, b) => {
       const av = a[sortKey] ?? -Infinity;
       const bv = b[sortKey] ?? -Infinity;
@@ -81,6 +82,7 @@ export default function PortfolioPage() {
             { value: "all", label: t("common.all") },
             { value: "stock", label: t("common.stocks") },
             { value: "crypto", label: t("common.crypto") },
+            { value: "pea", label: t("common.pea") },
           ]}
           value={filter}
           onChange={setFilter}
@@ -221,7 +223,14 @@ function PositionCard({
             {v.assetClass === "crypto" ? <Bitcoin className="h-4 w-4" /> : <CandlestickChart className="h-4 w-4" />}
           </span>
           <div className="min-w-0">
-            <p className="font-mono text-sm font-bold">{v.ticker}</p>
+            <p className="flex items-center gap-1.5 font-mono text-sm font-bold">
+              {v.ticker}
+              {v.account === "pea" ? (
+                <span className="rounded bg-accent-2/15 px-1 py-px font-sans text-[9px] font-semibold uppercase tracking-wide text-accent-2">
+                  PEA
+                </span>
+              ) : null}
+            </p>
             <p className="tnum text-xs text-muted">
               {fmtQty(v.quantity)} · {fmtEur(v.price)}
             </p>
@@ -295,7 +304,14 @@ function Row({
             {v.assetClass === "crypto" ? <Bitcoin className="h-4 w-4" /> : <CandlestickChart className="h-4 w-4" />}
           </span>
           <div className="min-w-0">
-            <p className="font-mono text-xs font-bold">{v.ticker}</p>
+            <p className="flex items-center gap-1.5 font-mono text-xs font-bold">
+              {v.ticker}
+              {v.account === "pea" ? (
+                <span className="rounded bg-accent-2/15 px-1 py-px font-sans text-[9px] font-semibold uppercase tracking-wide text-accent-2">
+                  PEA
+                </span>
+              ) : null}
+            </p>
             <p className="max-w-44 truncate text-xs text-muted">{v.name}</p>
           </div>
         </div>

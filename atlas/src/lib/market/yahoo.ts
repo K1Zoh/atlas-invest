@@ -1,26 +1,75 @@
 import YahooFinance from "yahoo-finance2";
 import type { HistoryPoint, SearchResult } from "../types";
+import { getSymbolOverrides, saveSymbolMappingIfNew } from "./symbol-map";
 
 const yf = new YahooFinance({ suppressNotices: ["yahooSurvey", "ripHistorical"] });
 
 const STOCK_TYPES = new Set(["EQUITY", "ETF", "MUTUALFUND", "INDEX"]);
 
-// Broker-specific codes (Trading 212 etc.) -> Yahoo symbols (ported from legacy).
-const BROKER_TO_YF: Record<string, string> = {
-  "10AP": "10AP.L",
-  "6AQQ": "6AQQ.DE",
-  XAMZ: "XAMZ.DU",
-  L0CK: "L0CK.DE",
-  EXSA: "EXSA.DE",
-  "500USD.SW": "P500.PA",
-  // Revolut bare codes -> Xetra EUR listings (verified).
-  VUAA: "VUAA.DE",
-  VWCG: "VWCG.DE",
-  "36B5": "36B5.DE",
-};
-
 function toYahooSymbol(ticker: string): string {
-  return BROKER_TO_YF[ticker.toUpperCase()] ?? ticker.toUpperCase();
+  const up = ticker.toUpperCase();
+  return getSymbolOverrides().get(up) ?? up;
+}
+
+// ── Auto-resolution of unknown broker codes ──────────────────────────────────
+// When Yahoo returns nothing for a ticker (ETF codes differ per broker), search
+// Yahoo for it, prefer a European EUR listing, verify the candidate actually
+// quotes, then persist the mapping so it never has to be resolved again.
+
+const RESOLVE_RETRY_MS = 6 * 60 * 60 * 1000;
+const resolveFailedAt = new Map<string, number>();
+
+/** Exchanges we prefer for a EUR-based portfolio, best first. */
+const PREFERRED_EXCHANGES = ["PAR", "GER", "FRA", "AMS", "MIL", "BRU", "LIS", "DUS", "STU", "EBS", "LSE"];
+
+interface SearchQuote {
+  symbol?: string;
+  shortname?: string;
+  longname?: string;
+  quoteType?: string;
+  exchange?: string;
+  exchDisp?: string;
+  isYahooFinance?: boolean;
+}
+
+function scoreCandidate(ticker: string, c: SearchQuote): number {
+  if (!c.isYahooFinance || !c.symbol || !STOCK_TYPES.has(c.quoteType ?? "")) return -1;
+  const sym = c.symbol.toUpperCase();
+  let score = 0;
+  // Same root code on another venue ("VUAA.DE" for "VUAA") is the typical case.
+  if (sym === ticker) score += 120;
+  else if (sym.startsWith(`${ticker}.`)) score += 100;
+  const exIdx = PREFERRED_EXCHANGES.indexOf(c.exchange ?? "");
+  if (exIdx !== -1) score += 40 - exIdx * 2;
+  return score;
+}
+
+async function resolveUnknownSymbol(ticker: string): Promise<{ symbol: string; name: string | null } | null> {
+  const failed = resolveFailedAt.get(ticker);
+  if (failed && Date.now() - failed < RESOLVE_RETRY_MS) return null;
+  try {
+    const res = (await yf.search(
+      ticker,
+      { quotesCount: 10, newsCount: 0 },
+      { validateResult: false },
+    )) as { quotes?: SearchQuote[] };
+    let best: SearchQuote | null = null;
+    let bestScore = 0;
+    for (const c of res.quotes ?? []) {
+      const s = scoreCandidate(ticker, c);
+      if (s > bestScore) {
+        best = c;
+        bestScore = s;
+      }
+    }
+    if (best?.symbol && best.symbol.toUpperCase() !== ticker) {
+      return { symbol: best.symbol.toUpperCase(), name: best.longname ?? best.shortname ?? null };
+    }
+  } catch {
+    // network hiccup: fall through and retry later
+  }
+  resolveFailedAt.set(ticker, Date.now());
+  return null;
 }
 
 export async function searchStocks(query: string, max = 8): Promise<SearchResult[]> {
@@ -61,12 +110,12 @@ export interface YahooQuote {
   name: string | null;
 }
 
-export async function getStockQuotes(symbols: string[]): Promise<Map<string, YahooQuote>> {
-  const out = new Map<string, YahooQuote>();
-  if (!symbols.length) return out;
-  // Map broker codes to Yahoo symbols, remember how to map results back.
-  const reverse = new Map<string, string>();
-  for (const s of symbols) reverse.set(toYahooSymbol(s), s.toUpperCase());
+// Several broker codes can map to the same Yahoo symbol (same ETF held via two
+// brokers), so the reverse map carries a list of originals per symbol.
+async function quoteBatch(
+  reverse: Map<string, string[]>,
+  out: Map<string, YahooQuote>,
+): Promise<void> {
   const res = await yf.quote(
     [...reverse.keys()],
     {
@@ -77,13 +126,58 @@ export async function getStockQuotes(symbols: string[]): Promise<Map<string, Yah
   const quotes = Array.isArray(res) ? res : [res];
   for (const q of quotes) {
     if (!q?.symbol || q.regularMarketPrice === undefined) continue;
-    out.set(reverse.get(q.symbol.toUpperCase()) ?? q.symbol.toUpperCase(), {
+    const quote: YahooQuote = {
       symbol: q.symbol,
       price: q.regularMarketPrice,
       currency: q.currency ?? "USD",
       changePct: q.regularMarketChangePercent ?? null,
       name: q.longName ?? q.shortName ?? null,
-    });
+    };
+    for (const original of reverse.get(q.symbol.toUpperCase()) ?? [q.symbol.toUpperCase()]) {
+      out.set(original, quote);
+    }
+  }
+}
+
+const MAX_RESOLVE_PER_CALL = 6;
+
+export async function getStockQuotes(symbols: string[]): Promise<Map<string, YahooQuote>> {
+  const out = new Map<string, YahooQuote>();
+  if (!symbols.length) return out;
+  // Map broker codes to Yahoo symbols, remember how to map results back.
+  const reverse = new Map<string, string[]>();
+  for (const s of symbols) {
+    const y = toYahooSymbol(s);
+    reverse.set(y, [...(reverse.get(y) ?? []), s.toUpperCase()]);
+  }
+  await quoteBatch(reverse, out);
+
+  // Second chance for tickers Yahoo doesn't know under their broker code:
+  // search-resolve them, quote the candidates, persist what actually works.
+  const missing = symbols.map((s) => s.toUpperCase()).filter((s) => !out.has(s));
+  if (!missing.length) return out;
+
+  const retry = new Map<string, string[]>(); // resolved yahoo symbol -> original tickers
+  const resolvedNames = new Map<string, string | null>();
+  for (const ticker of missing.slice(0, MAX_RESOLVE_PER_CALL)) {
+    const hit = await resolveUnknownSymbol(ticker);
+    if (hit) {
+      retry.set(hit.symbol, [...(retry.get(hit.symbol) ?? []), ticker]);
+      resolvedNames.set(ticker, hit.name);
+    }
+  }
+  if (retry.size) {
+    try {
+      await quoteBatch(retry, out);
+      for (const [symbol, tickers] of retry) {
+        for (const ticker of tickers) {
+          // Persist only mappings that produced a real quote.
+          if (out.has(ticker)) saveSymbolMappingIfNew(ticker, symbol, resolvedNames.get(ticker));
+        }
+      }
+    } catch {
+      // resolution is best effort; the ticker stays "cours indisponible"
+    }
   }
   return out;
 }

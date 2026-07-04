@@ -1,5 +1,6 @@
 import { getDb } from "./db";
 import type {
+  AccountType,
   AiAnalysis,
   AiRecommendation,
   AlertKind,
@@ -24,6 +25,7 @@ interface TxRow {
   fees: number;
   tx_date: string;
   platform: string | null;
+  account: AccountType | null;
   coingecko_id: string | null;
   note: string | null;
   created_at: string;
@@ -41,6 +43,7 @@ function mapTx(r: TxRow): Transaction {
     fees: r.fees,
     txDate: r.tx_date,
     platform: r.platform,
+    account: r.account,
     coingeckoId: r.coingecko_id,
     note: r.note,
     createdAt: r.created_at,
@@ -57,6 +60,7 @@ export interface NewTransaction {
   fees?: number;
   txDate: string;
   platform?: string | null;
+  account?: AccountType | null;
   coingeckoId?: string | null;
   note?: string | null;
   extId?: string | null;
@@ -66,14 +70,15 @@ export function addTransaction(tx: NewTransaction): number {
   const db = getDb();
   const res = db
     .prepare(
-      `INSERT INTO transactions (ticker, name, asset_class, side, quantity, price, fees, tx_date, platform, coingecko_id, note, ext_id)
-       VALUES (@ticker, @name, @assetClass, @side, @quantity, @price, @fees, @txDate, @platform, @coingeckoId, @note, @extId)`,
+      `INSERT INTO transactions (ticker, name, asset_class, side, quantity, price, fees, tx_date, platform, account, coingecko_id, note, ext_id)
+       VALUES (@ticker, @name, @assetClass, @side, @quantity, @price, @fees, @txDate, @platform, @account, @coingeckoId, @note, @extId)`,
     )
     .run({
       ...tx,
       ticker: tx.ticker.toUpperCase().trim(),
       fees: tx.fees ?? 0,
       platform: tx.platform ?? null,
+      account: tx.assetClass === "stock" ? (tx.account ?? null) : null,
       coingeckoId: tx.coingeckoId ?? null,
       note: tx.note ?? null,
       extId: tx.extId ?? null,
@@ -85,8 +90,8 @@ export function addTransaction(tx: NewTransaction): number {
 export function addTransactions(txs: NewTransaction[]): number {
   const db = getDb();
   const insert = db.prepare(
-    `INSERT INTO transactions (ticker, name, asset_class, side, quantity, price, fees, tx_date, platform, coingecko_id, note, ext_id)
-     VALUES (@ticker, @name, @assetClass, @side, @quantity, @price, @fees, @txDate, @platform, @coingeckoId, @note, @extId)`,
+    `INSERT INTO transactions (ticker, name, asset_class, side, quantity, price, fees, tx_date, platform, account, coingecko_id, note, ext_id)
+     VALUES (@ticker, @name, @assetClass, @side, @quantity, @price, @fees, @txDate, @platform, @account, @coingeckoId, @note, @extId)`,
   );
   const run = db.transaction((rows: NewTransaction[]) => {
     for (const tx of rows) {
@@ -95,6 +100,7 @@ export function addTransactions(txs: NewTransaction[]): number {
         ticker: tx.ticker.toUpperCase().trim(),
         fees: tx.fees ?? 0,
         platform: tx.platform ?? null,
+        account: tx.assetClass === "stock" ? (tx.account ?? null) : null,
         coingeckoId: tx.coingeckoId ?? null,
         note: tx.note ?? null,
         extId: tx.extId ?? null,
@@ -132,7 +138,7 @@ export function updateTransaction(id: number, tx: Partial<NewTransaction>): void
     .prepare(
       `UPDATE transactions SET ticker=@ticker, name=@name, asset_class=@assetClass, side=@side,
        quantity=@quantity, price=@price, fees=@fees, tx_date=@txDate, platform=@platform,
-       coingecko_id=@coingeckoId, note=@note WHERE id=@id`,
+       account=@account, coingecko_id=@coingeckoId, note=@note WHERE id=@id`,
     )
     .run({
       id,
@@ -145,6 +151,7 @@ export function updateTransaction(id: number, tx: Partial<NewTransaction>): void
       fees: merged.fees ?? 0,
       txDate: merged.txDate,
       platform: merged.platform ?? null,
+      account: merged.assetClass === "stock" ? (merged.account ?? null) : null,
       coingeckoId: merged.coingeckoId ?? null,
       note: merged.note ?? null,
     });
@@ -163,6 +170,18 @@ export function deletePosition(ticker: string, assetClass: AssetClass): number {
   const res = getDb()
     .prepare("DELETE FROM transactions WHERE ticker = ? AND asset_class = ?")
     .run(ticker.toUpperCase().trim(), assetClass);
+  return res.changes;
+}
+
+/**
+ * Tag every transaction of a stock position with a fiscal envelope (PEA/CTO).
+ * A position lives in a single envelope in practice, so the flag is applied
+ * position-wide rather than per transaction. Returns the rows updated.
+ */
+export function setPositionAccount(ticker: string, account: AccountType | null): number {
+  const res = getDb()
+    .prepare("UPDATE transactions SET account = ? WHERE ticker = ? AND asset_class = 'stock'")
+    .run(account, ticker.toUpperCase().trim());
   return res.changes;
 }
 
@@ -207,6 +226,7 @@ export function getPositions(assetClass?: AssetClass): Position[] {
         invested: 0,
         realizedPnl: 0,
         platform: t.platform,
+        account: t.account,
         coingeckoId: t.coingeckoId,
         firstBuy: t.txDate,
       };
@@ -214,6 +234,7 @@ export function getPositions(assetClass?: AssetClass): Position[] {
     }
     if (t.coingeckoId) p.coingeckoId = t.coingeckoId;
     if (t.platform) p.platform = t.platform;
+    if (t.account) p.account = t.account;
     p.name = t.name || p.name;
 
     if (t.side === "buy") {

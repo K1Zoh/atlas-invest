@@ -23,6 +23,8 @@ export async function POST(req: NextRequest) {
     const exchange = (form.get("exchange") as ExchangeId | null) ?? "auto";
     const assetClass = (form.get("assetClass") as AssetClass | null) ?? "crypto";
     const asOfDate = (form.get("asOfDate") as string | null) ?? undefined;
+    const accountRaw = (form.get("account") as string | null) ?? "";
+    const account = accountRaw === "pea" || accountRaw === "cto" ? accountRaw : null;
     if (!EXCHANGES.includes(exchange)) return bad("Exchange invalide");
     if (assetClass !== "stock" && assetClass !== "crypto") return bad("Classe invalide");
 
@@ -36,7 +38,7 @@ export async function POST(req: NextRequest) {
       return bad("Fichier ou liste manquant");
     }
 
-    const preview = previewImport(buffer, { exchange, assetClass, asOfDate });
+    const preview = previewImport(buffer, { exchange, assetClass, asOfDate, account });
     return ok(preview);
   } catch (e) {
     return oops(e);

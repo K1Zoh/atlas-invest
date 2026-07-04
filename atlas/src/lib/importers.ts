@@ -7,7 +7,7 @@ import {
   existingFingerprints,
   type NewTransaction,
 } from "./repo";
-import type { AssetClass, TxSide } from "./types";
+import type { AccountType, AssetClass, TxSide } from "./types";
 
 const MAX_FILE_BYTES = 8 * 1024 * 1024;
 
@@ -43,6 +43,7 @@ export interface ParsedRow {
   fees: number;
   txDate: string;
   platform: string | null;
+  account: AccountType | null;
   coingeckoId: string | null;
   extId: string | null;
   fingerprint: string;
@@ -67,6 +68,7 @@ interface ExtractedRow {
   fees: number;
   txDate: string;
   platform: string | null;
+  account?: AccountType | null;
   coingeckoId: string | null;
   extId: string | null;
   ignored?: string;
@@ -638,7 +640,17 @@ const COL_ALIASES: Record<string, string[]> = {
   fees: ["fees", "fee", "frais", "commission"],
   side: ["side", "type", "sens"],
   platform: ["platform", "plateforme", "exchange", "broker", "courtier"],
+  account: ["account", "compte", "enveloppe", "envelope", "plan"],
 };
+
+/** "PEA", "pea-pme" → pea ; "CTO", "compte-titres", "ordinaire" → cto. */
+function accountFromText(raw: string): AccountType | null {
+  const s = (raw ?? "").trim().toLowerCase();
+  if (!s) return null;
+  if (s.includes("pea")) return "pea";
+  if (s.includes("cto") || s.includes("titres") || s.includes("ordinaire")) return "cto";
+  return null;
+}
 
 function resolveCol(header: string[], field: string): number {
   for (const alias of COL_ALIASES[field] ?? []) {
@@ -659,6 +671,7 @@ function extractGeneric(rows: string[][], assetClass: AssetClass): ExtractResult
   const iFees = resolveCol(header, "fees");
   const iSide = resolveCol(header, "side");
   const iPlatform = resolveCol(header, "platform");
+  const iAccount = resolveCol(header, "account");
 
   const missing = [
     ["Ticker", iTicker],
@@ -710,6 +723,7 @@ function extractGeneric(rows: string[][], assetClass: AssetClass): ExtractResult
       fees,
       txDate: date,
       platform: iPlatform !== -1 ? row[iPlatform]?.trim() || null : null,
+      account: cls === "stock" && iAccount !== -1 ? accountFromText(row[iAccount] ?? "") : null,
       coingeckoId: cls === "crypto" ? resolveCoingeckoId(ticker) : null,
       extId: null,
     });
@@ -742,6 +756,7 @@ const POSITION_ALIASES: Record<string, string[]> = {
     "buy price", "prix unitaire", "unit price", "cours", "prix", "price",
   ],
   platform: ["platform", "plateforme", "exchange", "broker", "courtier"],
+  account: ["account", "compte", "enveloppe", "envelope", "plan"],
   date: ["date", "buy date", "date d'achat", "acquired", "acquisition"],
 };
 
@@ -832,6 +847,7 @@ function extractPositions(
   const iQty = resolvePositionCol(header, "quantity");
   const iPrice = resolvePositionCol(header, "price");
   const iPlatform = resolvePositionCol(header, "platform");
+  const iAccount = resolvePositionCol(header, "account");
   const iDate = resolvePositionCol(header, "date");
 
   const missing = [
@@ -871,6 +887,7 @@ function extractPositions(
       fees: 0,
       txDate: rowDate ?? asOfDate,
       platform: iPlatform !== -1 ? row[iPlatform]?.trim() || null : null,
+      account: cls === "stock" && iAccount !== -1 ? accountFromText(row[iAccount] ?? "") : null,
       coingeckoId: cls === "crypto" ? resolveCoingeckoId(ticker) : null,
       extId: null,
     });
@@ -897,7 +914,13 @@ function decodeFile(raw: Buffer): { text: string; error?: string } {
 /** Parse a file into a preview (no DB writes), assigning a dedup status per row. */
 export function previewImport(
   raw: Buffer,
-  opts: { exchange: ExchangeId; assetClass: AssetClass; asOfDate?: string },
+  opts: {
+    exchange: ExchangeId;
+    assetClass: AssetClass;
+    asOfDate?: string;
+    /** Default fiscal envelope applied to stock rows without one (PEA/CTO). */
+    account?: AccountType | null;
+  },
 ): PreviewResult {
   const { text, error } = decodeFile(raw);
   if (error) {
@@ -970,7 +993,9 @@ export function previewImport(
       if (r.extId) seenExtIds.add(r.extId);
       seenFps.add(fp);
     }
-    return { ...r, status, reason, fingerprint: fp };
+    const account: AccountType | null =
+      r.assetClass === "stock" ? (r.account ?? opts.account ?? null) : null;
+    return { ...r, account, status, reason, fingerprint: fp };
   });
 
   const counts = {
@@ -1020,6 +1045,7 @@ export function commitImport(rows: ParsedRow[]): { imported: number; skipped: nu
       fees: Number(r.fees) || 0,
       txDate: r.txDate,
       platform: r.platform,
+      account: r.assetClass === "stock" ? (r.account ?? null) : null,
       coingeckoId: r.coingeckoId,
       note: r.platform ? `Import ${r.platform}` : "Import CSV",
       extId: r.extId,
@@ -1032,11 +1058,12 @@ export function commitImport(rows: ParsedRow[]): { imported: number; skipped: nu
 /** Downloadable canonical template the user can fill for any exchange. */
 export function buildTemplate(): string {
   return [
-    "ticker,name,asset_class,side,quantity,price,fees,date,platform",
-    "BTC,Bitcoin,crypto,buy,0.05,42000,1.5,2024-01-15,Kraken",
-    "ETH,Ethereum,crypto,buy,1.2,2300,0.9,2024-02-03,Binance",
-    "CW8,Amundi MSCI World,stock,buy,3,480.25,0,2024-03-10,Trade Republic",
-    "SOL,Solana,crypto,sell,5,150,0.5,2024-04-22,Kraken",
+    "ticker,name,asset_class,side,quantity,price,fees,date,platform,account",
+    "BTC,Bitcoin,crypto,buy,0.05,42000,1.5,2024-01-15,Kraken,",
+    "ETH,Ethereum,crypto,buy,1.2,2300,0.9,2024-02-03,Binance,",
+    "CW8,Amundi MSCI World,stock,buy,3,480.25,0,2024-03-10,Boursorama,PEA",
+    "AAPL,Apple,stock,buy,10,175.40,1,2024-03-12,Revolut,CTO",
+    "SOL,Solana,crypto,sell,5,150,0.5,2024-04-22,Kraken,",
   ].join("\n");
 }
 
@@ -1046,11 +1073,11 @@ export function buildTemplate(): string {
  */
 export function buildPositionsTemplate(): string {
   return [
-    "ticker,asset_class,quantity,average_price,name,platform",
-    "BTC,crypto,0.5,38000,Bitcoin,Kraken",
-    "ETH,crypto,4,2100,Ethereum,Binance",
-    "CW8,stock,3,480.25,Amundi MSCI World,Trade Republic",
-    "AAPL,stock,10,175.40,Apple,Revolut",
+    "ticker,asset_class,quantity,average_price,name,platform,account",
+    "BTC,crypto,0.5,38000,Bitcoin,Kraken,",
+    "ETH,crypto,4,2100,Ethereum,Binance,",
+    "CW8,stock,3,480.25,Amundi MSCI World,Boursorama,PEA",
+    "AAPL,stock,10,175.40,Apple,Revolut,CTO",
   ].join("\n");
 }
 
