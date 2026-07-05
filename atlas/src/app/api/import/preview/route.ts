@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { bad, ok, oops } from "@/lib/api-helpers";
-import { previewImport, type ExchangeId } from "@/lib/importers";
+import { previewImport, previewStatementImport, type ExchangeId } from "@/lib/importers";
 import type { AssetClass } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -13,6 +13,7 @@ const EXCHANGES: ExchangeId[] = [
   "coinbase",
   "generic",
   "positions",
+  "statement",
 ];
 
 export async function POST(req: NextRequest) {
@@ -38,7 +39,10 @@ export async function POST(req: NextRequest) {
       return bad("Fichier ou liste manquant");
     }
 
-    const preview = previewImport(buffer, { exchange, assetClass, asOfDate, account });
+    const preview =
+      exchange === "statement"
+        ? await previewStatementImport(buffer.toString("utf-8"), { account })
+        : previewImport(buffer, { exchange, assetClass, asOfDate, account });
     return ok(preview);
   } catch (e) {
     return oops(e);

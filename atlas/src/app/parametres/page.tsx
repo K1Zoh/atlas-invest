@@ -316,7 +316,7 @@ function ImportSection() {
   const { toast } = useToast();
   const { refresh } = useRefresh();
   const fileRef = useRef<HTMLInputElement>(null);
-  const [mode, setMode] = useState<"positions" | "broker">("positions");
+  const [mode, setMode] = useState<"positions" | "broker" | "statement">("positions");
   const [exchange, setExchange] = useState("auto");
   const [importClass, setImportClass] = useState<"stock" | "crypto">("crypto");
   const [account, setAccount] = useState("");
@@ -330,7 +330,12 @@ function ImportSection() {
 
   const analyze = async () => {
     const form = new FormData();
-    if (mode === "positions") {
+    if (mode === "statement") {
+      if (!pasteText.trim()) return;
+      form.set("exchange", "statement");
+      form.set("account", account);
+      form.set("text", pasteText);
+    } else if (mode === "positions") {
       form.set("exchange", "positions");
       form.set("assetClass", importClass);
       form.set("asOfDate", asOfDate);
@@ -418,7 +423,7 @@ function ImportSection() {
     .sort((a, b) => (a.e.row.status === "new" ? 0 : 1) - (b.e.row.status === "new" ? 0 : 1));
   const visible = showAll ? order : order.slice(0, 14);
 
-  const switchMode = (m: "positions" | "broker") => {
+  const switchMode = (m: "positions" | "broker" | "statement") => {
     setMode(m);
     setPreview(null);
     setEditRows([]);
@@ -430,17 +435,50 @@ function ImportSection() {
       <p className="text-sm font-medium">{t("set.import.title")}</p>
 
       <div className="mt-2">
-        <Segmented<"positions" | "broker">
+        <Segmented<"positions" | "broker" | "statement">
           options={[
             { value: "positions", label: t("set.import.mode.positions") },
             { value: "broker", label: t("set.import.mode.broker") },
+            { value: "statement", label: t("set.import.mode.statement") },
           ]}
           value={mode}
           onChange={switchMode}
         />
       </div>
 
-      {mode === "positions" ? (
+      {mode === "statement" ? (
+        <>
+          <p className="mt-3 text-xs leading-relaxed text-muted">{t("set.import.statement.hint")}</p>
+
+          <div className="mt-3 flex flex-wrap items-end gap-3">
+            <label className="flex flex-col gap-1">
+              <span className="text-[11px] font-medium text-muted">{t("set.import.account")}</span>
+              <Select value={account} onChange={(e) => setAccount(e.target.value)} className="w-44">
+                <option value="">{t("set.import.account.auto")}</option>
+                <option value="cto">{t("common.cto")}</option>
+                <option value="pea">{t("common.pea")}</option>
+              </Select>
+            </label>
+          </div>
+
+          <textarea
+            value={pasteText}
+            onChange={(e) => {
+              setPasteText(e.target.value);
+              setPreview(null);
+            }}
+            rows={7}
+            placeholder={t("set.import.statement.paste")}
+            className="mt-3 w-full rounded-xl border border-border bg-surface-2/60 px-3 py-2 font-mono text-xs text-foreground placeholder:text-muted/60 focus:border-accent focus:outline-none"
+          />
+
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <Button variant="outline" onClick={analyze} loading={analyzing} disabled={!pasteText.trim()}>
+              <FileSearch className="h-4 w-4" /> {t("set.import.statement.analyze")}
+            </Button>
+          </div>
+        </>
+      ) : mode === "positions" ? (
         <>
           <p className="mt-3 text-xs leading-relaxed text-muted">{t("set.import.positions.hint")}</p>
 
@@ -631,7 +669,14 @@ function ImportSection() {
                         />
                       </td>
                       <td className="tnum px-2 py-1.5 text-muted">{fmtDate(e.row.txDate)}</td>
-                      <td className="px-2 py-1.5 font-mono font-semibold">{e.row.ticker}</td>
+                      <td className="px-2 py-1.5 font-mono font-semibold" title={e.row.name}>
+                        {e.row.ticker}
+                        {e.row.account === "pea" ? (
+                          <span className="ml-1.5 rounded bg-accent-2/15 px-1 py-px font-sans text-[9px] font-semibold uppercase tracking-wide text-accent-2">
+                            PEA
+                          </span>
+                        ) : null}
+                      </td>
                       <td className="px-2 py-1.5">
                         <Badge tone={e.row.side === "buy" ? "accent" : "danger"}>
                           {e.row.side === "buy" ? t("common.buy") : t("common.sell")}

@@ -350,6 +350,15 @@ const fr = {
     "Les cessions réalisées à l'intérieur du PEA ne déclenchent pas le PFU : elles sont exclues de ce tableau. Voir la page PEA pour sa fiscalité propre.",
   "set.import.account": "Enveloppe (actions/ETF)",
   "set.import.account.none": "— (non précisée)",
+  "set.import.account.auto": "Auto (détection PEA)",
+
+  // Free-text statement import
+  "set.import.mode.statement": "Relevé collé",
+  "set.import.statement.hint":
+    "Colle l'historique brut de ton appli bancaire ou courtier, tel quel. Atlas repère les blocs « nom de l'instrument / 29 juin · Ordre d'achat / 239,11 € », retrouve le ticker sur Yahoo, déduit la quantité du cours à la date, ignore les simples mouvements de trésorerie et pré-remplit l'enveloppe PEA quand le nom du fonds la trahit. Tu vérifies tout dans l'aperçu avant d'importer.",
+  "set.import.statement.paste":
+    "Colle ton relevé ici, par exemple :\nMSCI World Swap PEA EUR (Acc)\n29 juin · Ordre d'achat\n239,11 €",
+  "set.import.statement.analyze": "Analyser le relevé",
 
   // Symbol mapping (broker codes -> Yahoo)
   "set.symbolMap.title": "Correspondance des tickers",
@@ -739,6 +748,15 @@ const en: Record<TKey, string> = {
     "Disposals inside the PEA do not trigger the flat tax: they are excluded from this table. See the PEA page for its own tax rules.",
   "set.import.account": "Account (stocks/ETF)",
   "set.import.account.none": "— (unspecified)",
+  "set.import.account.auto": "Auto (PEA detection)",
+
+  // Free-text statement import
+  "set.import.mode.statement": "Pasted statement",
+  "set.import.statement.hint":
+    "Paste your banking/broker app history as-is. Atlas spots the “instrument name / 29 Jun · Buy order / €239.11” blocks, finds the ticker on Yahoo, derives the quantity from the close at that date, skips plain cash movements and pre-fills the PEA envelope when the fund name gives it away. You review everything in the preview before importing.",
+  "set.import.statement.paste":
+    "Paste your statement here, e.g.:\nMSCI World Swap PEA EUR (Acc)\n29 Jun · Buy order\n€239.11",
+  "set.import.statement.analyze": "Analyze statement",
 
   // Symbol mapping (broker codes -> Yahoo)
   "set.symbolMap.title": "Ticker mapping",

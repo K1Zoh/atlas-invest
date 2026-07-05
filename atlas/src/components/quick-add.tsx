@@ -206,6 +206,17 @@ export function QuickAdd() {
     return () => clearTimeout(debounceRef.current);
   }, [query]);
 
+  // A fund whose name carries "PEA" (WPEA, Amundi PEA Monde…) almost surely
+  // lives in the PEA: pre-select the envelope, still editable before saving.
+  useEffect(() => {
+    if (
+      selected?.assetClass === "stock" &&
+      /(^|[^a-z0-9])pea([^a-z0-9]|$)/i.test(`${selected.name} ${selected.ticker}`)
+    ) {
+      setAccount("pea");
+    }
+  }, [selected]);
+
   // Price prefill: live quote for today, daily close for a past date.
   useEffect(() => {
     if (!selected) return;

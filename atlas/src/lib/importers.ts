@@ -1,4 +1,5 @@
 import { FIAT, normalizeKrakenAsset, parseKrakenPair } from "./import/kraken";
+import { closeAt, parseStatementText, resolveInstrument } from "./import/statement";
 import { extractCsvFromZip, looksLikeZip } from "./import/zip";
 import { resolveCoingeckoId } from "./market/coingecko";
 import {
@@ -18,7 +19,8 @@ export type ExchangeId =
   | "binance"
   | "coinbase"
   | "generic"
-  | "positions";
+  | "positions"
+  | "statement";
 
 export const EXCHANGES: { id: ExchangeId; label: string }[] = [
   { id: "auto", label: "Détection automatique" },
@@ -970,6 +972,19 @@ export function previewImport(
       extracted = extractGeneric(csvRows, opts.assetClass);
   }
 
+  return finalizePreview(extracted, exchange, detected, opts.account ?? null);
+}
+
+/** ETF/fund names that carry "PEA" almost surely live in a PEA. */
+const PEA_NAME_RE = /(^|[^a-z0-9])pea([^a-z0-9]|$)/i;
+
+/** Assign dedup status + fiscal envelope to extracted rows (shared tail). */
+function finalizePreview(
+  extracted: ExtractResult,
+  exchange: ExchangeId,
+  detected: ExchangeId,
+  defaultAccount: AccountType | null,
+): PreviewResult {
   const knownExtIds = existingExtIds();
   const knownFps = existingFingerprints();
   const seenExtIds = new Set<string>();
@@ -993,8 +1008,13 @@ export function previewImport(
       if (r.extId) seenExtIds.add(r.extId);
       seenFps.add(fp);
     }
+    // Explicit row value > user's global choice > detection from the name.
     const account: AccountType | null =
-      r.assetClass === "stock" ? (r.account ?? opts.account ?? null) : null;
+      r.assetClass === "stock"
+        ? (r.account ??
+          defaultAccount ??
+          (PEA_NAME_RE.test(`${r.name} ${r.ticker}`) ? "pea" : null))
+        : null;
     return { ...r, account, status, reason, fingerprint: fp };
   });
 
@@ -1006,6 +1026,86 @@ export function previewImport(
   };
 
   return { exchange, detected, rows, counts, errors: extracted.errors };
+}
+
+// ── Free-text statement ("colle n'importe quoi") ─────────────────────────────
+
+const round8 = (v: number) => Math.round(v * 1e8) / 1e8;
+const round6 = (v: number) => Math.round(v * 1e6) / 1e6;
+
+/**
+ * Preview for a raw statement pasted from a broker/banking app. Async because
+ * each unique instrument name is resolved via Yahoo search and each operation
+ * is priced from the cached close at its date (quantity = amount / close).
+ */
+export async function previewStatementImport(
+  text: string,
+  opts: { account?: AccountType | null },
+): Promise<PreviewResult> {
+  const ops = parseStatementText(text);
+  const errors: string[] = [];
+  const rows: ExtractedRow[] = [];
+
+  if (!ops.length) {
+    errors.push(
+      "Aucune opération reconnue. Format attendu par bloc : nom de l'instrument, puis « 29 juin · Ordre d'achat », puis « 239,11 € ».",
+    );
+    return finalizePreview({ rows, errors }, "statement", "statement", opts.account ?? null);
+  }
+
+  const resolved = new Map<string, Awaited<ReturnType<typeof resolveInstrument>>>();
+  for (const op of ops) {
+    if (!resolved.has(op.name)) resolved.set(op.name, await resolveInstrument(op.name));
+    const hit = resolved.get(op.name);
+
+    if (!hit) {
+      errors.push(`« ${op.name} » introuvable sur Yahoo — corrige le nom ou ajoute l'opération à la main.`);
+      continue;
+    }
+    if (op.kind === "dividend") {
+      rows.push({
+        ticker: hit.ticker,
+        name: hit.name,
+        assetClass: "stock",
+        side: "buy",
+        quantity: 0,
+        price: 0,
+        fees: 0,
+        txDate: op.date,
+        platform: null,
+        coingeckoId: null,
+        extId: `stmt:${op.date}:div:${hit.ticker}:${op.amount.toFixed(2)}`,
+        ignored: "Dividende — à enregistrer dans l'onglet Fiscal",
+      });
+      continue;
+    }
+
+    const close = await closeAt(hit.ticker, op.date);
+    rows.push({
+      ticker: hit.ticker,
+      name: hit.name,
+      assetClass: "stock",
+      side: op.side,
+      quantity: close ? round8(op.amount / close) : 0,
+      price: close ? round6(close) : 0,
+      fees: 0,
+      txDate: op.date,
+      platform: null,
+      coingeckoId: null,
+      extId: `stmt:${op.date}:${op.side}:${hit.ticker}:${op.amount.toFixed(2)}`,
+      ignored: close
+        ? undefined
+        : "Cours introuvable à cette date — complète quantité et prix puis coche la ligne",
+    });
+  }
+  // Apps list newest first; replay chronologically, buys before sells on the
+  // same day so a same-day round trip doesn't apply the sell to an empty line.
+  rows.sort(
+    (a, b) =>
+      a.txDate.localeCompare(b.txDate) ||
+      (a.side === b.side ? 0 : a.side === "buy" ? -1 : 1),
+  );
+  return finalizePreview({ rows, errors }, "statement", "statement", opts.account ?? null);
 }
 
 /**

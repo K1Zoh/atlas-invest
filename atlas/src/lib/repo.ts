@@ -119,11 +119,14 @@ export function existingExtIds(): Set<string> {
   return new Set(rows.map((r) => r.ext_id));
 }
 
-/** Value-based fingerprints for rows that have no source id (manual CSV). */
+/**
+ * Value-based fingerprints for rows that have no source id (manual CSV).
+ * MUST stay aligned with fingerprint() in importers.ts (side included).
+ */
 export function existingFingerprints(): Set<string> {
   return new Set(
     listTransactions().map(
-      (t) => `${t.ticker}|${t.txDate}|${t.quantity.toFixed(8)}|${t.price.toFixed(6)}`,
+      (t) => `${t.ticker}|${t.txDate}|${t.side}|${t.quantity.toFixed(8)}|${t.price.toFixed(6)}`,
     ),
   );
 }
