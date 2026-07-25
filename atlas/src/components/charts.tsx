@@ -9,6 +9,8 @@ import {
   Line,
   Pie,
   PieChart,
+  ReferenceDot,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   Treemap,
@@ -497,6 +499,134 @@ export function PriceChart({
           isAnimationActive
           animationDuration={700}
         />
+      </ComposedChart>
+    </ResponsiveContainer>
+  );
+}
+
+// ── DCA projection (band low..high + expected + invested + freedom target) ──
+
+export interface ProjectionPointView {
+  year: number;
+  invested: number;
+  expected: number;
+  low: number;
+  high: number;
+}
+
+export function ProjectionChart({
+  points,
+  height = 260,
+  target,
+  freedomYear,
+  labels,
+}: {
+  points: ProjectionPointView[];
+  height?: number;
+  target?: number | null;
+  freedomYear?: number | null;
+  labels: { expected: string; invested: string; band: string; target: string; freedom: string };
+}) {
+  const id = useId();
+  const data = useMemo(
+    () =>
+      points.map((p) => ({
+        year: p.year,
+        expected: p.expected,
+        invested: p.invested,
+        band: [p.low, p.high] as [number, number],
+      })),
+    [points],
+  );
+  if (data.length < 2) {
+    return <div className="py-12 text-center text-sm text-muted">—</div>;
+  }
+  return (
+    <ResponsiveContainer width="100%" height={height}>
+      <ComposedChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 8 }}>
+        <defs>
+          <linearGradient id={`pj-${id}`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="var(--accent)" stopOpacity={0.28} />
+            <stop offset="100%" stopColor="var(--accent)" stopOpacity={0} />
+          </linearGradient>
+        </defs>
+        <CartesianGrid stroke="var(--border)" strokeDasharray="3 5" vertical={false} />
+        <XAxis
+          dataKey="year"
+          tick={{ fill: "var(--muted)", fontSize: 11 }}
+          tickFormatter={(y: number) => `${y} an${y > 1 ? "s" : ""}`}
+          axisLine={false}
+          tickLine={false}
+          minTickGap={40}
+        />
+        <YAxis
+          tick={{ fill: "var(--muted)", fontSize: 11 }}
+          tickFormatter={(v: number) => `${Math.round(cvtMoney(v) / 100) / 10}k`}
+          axisLine={false}
+          tickLine={false}
+          width={46}
+          domain={["auto", "auto"]}
+        />
+        <Tooltip
+          content={({ active, payload, label }) => {
+            if (!active || !payload?.length) return null;
+            const row = payload[0]?.payload as
+              | { expected: number; invested: number; band: [number, number] }
+              | undefined;
+            if (!row) return null;
+            return (
+              <div className="rounded-lg border border-border bg-surface px-3 py-2 text-xs shadow-xl">
+                <div className="mb-1 font-medium text-muted">{`${label} ans`}</div>
+                <div className="tnum font-semibold text-accent">
+                  {labels.expected} : {fmtEur(row.expected)}
+                </div>
+                <div className="tnum text-muted">
+                  {labels.band} : {fmtEur(row.band[0])} – {fmtEur(row.band[1])}
+                </div>
+                <div className="tnum text-muted">
+                  {labels.invested} : {fmtEur(row.invested)}
+                </div>
+              </div>
+            );
+          }}
+        />
+        <Area
+          type="monotone"
+          dataKey="band"
+          stroke="none"
+          fill={`url(#pj-${id})`}
+          isAnimationActive
+          animationDuration={700}
+        />
+        <Line
+          type="monotone"
+          dataKey="invested"
+          stroke="var(--muted)"
+          strokeWidth={1.2}
+          strokeDasharray="4 4"
+          dot={false}
+          isAnimationActive={false}
+        />
+        <Line
+          type="monotone"
+          dataKey="expected"
+          stroke="var(--accent)"
+          strokeWidth={2}
+          dot={false}
+          isAnimationActive
+          animationDuration={700}
+        />
+        {target ? (
+          <ReferenceLine
+            y={target}
+            stroke="var(--accent-2)"
+            strokeDasharray="5 4"
+            label={{ value: labels.target, position: "insideTopLeft", fill: "var(--accent-2)", fontSize: 11 }}
+          />
+        ) : null}
+        {target && freedomYear != null ? (
+          <ReferenceDot x={freedomYear} y={target} r={4} fill="var(--accent-2)" stroke="var(--surface)" />
+        ) : null}
       </ComposedChart>
     </ResponsiveContainer>
   );
