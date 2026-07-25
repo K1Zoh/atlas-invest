@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { projectDca, type SimConfig } from "./projection";
+import { defaultReturnForName } from "./pea-presets";
 
 function cfg(over: Partial<SimConfig> = {}): SimConfig {
   return {
@@ -118,5 +119,16 @@ describe("projectDca — start capital, candidate, freedom", () => {
     );
     expect(r.freedom!.reached).toBe(false);
     expect(r.freedom!.months).toBeNull();
+  });
+});
+
+describe("defaultReturnForName", () => {
+  it("maps well-known indices to their default", () => {
+    expect(defaultReturnForName("iShares MSCI World Swap PEA")).toBe(7);
+    expect(defaultReturnForName("Amundi PEA Nasdaq 100")).toBe(10);
+    expect(defaultReturnForName("BNP S&P 500")).toBe(8);
+    expect(defaultReturnForName("Amundi PEA Marchés Émergents ESG")).toBe(7);
+    expect(defaultReturnForName("Amundi PEA Europe")).toBe(6);
+    expect(defaultReturnForName("Some Unknown Fund")).toBe(7);
   });
 });
