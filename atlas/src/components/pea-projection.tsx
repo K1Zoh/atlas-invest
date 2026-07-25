@@ -166,7 +166,7 @@ export function PeaProjection() {
             ) : null}
             {ETF_PRESETS.map((p) => (
               <Chip key={p.ticker} onClick={() => addLine(p)}>
-                + {p.name.replace(/^.*PEA\s*/i, "").split(" ").slice(0, 2).join(" ") || p.ticker}
+                + {p.label}
               </Chip>
             ))}
             <Chip onClick={() => addLine()}>
@@ -286,7 +286,7 @@ export function PeaProjection() {
                   return (
                     <tr key={h.months} className="border-b border-border/50 last:border-0">
                       <td className="py-2 pr-2">
-                        {h.months < 12 ? `${h.months} mois` : `${h.months / 12} ans`}
+                        {h.months < 12 ? `${h.months} mois` : `${h.months / 12} an${h.months / 12 > 1 ? "s" : ""}`}
                       </td>
                       <td className="tnum py-2 px-2 text-right text-muted">{fmtEur(h.invested)}</td>
                       <td className="tnum py-2 px-2 text-right font-medium">

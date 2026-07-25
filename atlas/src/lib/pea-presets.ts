@@ -1,17 +1,18 @@
 export interface EtfPreset {
   ticker: string;
   name: string;
+  label: string;
   annualReturnPct: number;
 }
 
 /** Common PEA-eligible ETFs offered as quick-add chips. Tickers are labels only
  * (the simulator never fetches a price). */
 export const ETF_PRESETS: EtfPreset[] = [
-  { ticker: "WPEA", name: "iShares MSCI World Swap PEA", annualReturnPct: 7 },
-  { ticker: "ESE", name: "BNP Paribas S&P 500 PEA", annualReturnPct: 8 },
-  { ticker: "PAEEM", name: "Amundi PEA Marchés Émergents", annualReturnPct: 7 },
-  { ticker: "PCEU", name: "Amundi PEA Europe", annualReturnPct: 6 },
-  { ticker: "PUST", name: "Amundi PEA Nasdaq 100", annualReturnPct: 10 },
+  { ticker: "WPEA", name: "iShares MSCI World Swap PEA", label: "World", annualReturnPct: 7 },
+  { ticker: "ESE", name: "BNP Paribas S&P 500 PEA", label: "S&P 500", annualReturnPct: 8 },
+  { ticker: "PAEEM", name: "Amundi PEA Marchés Émergents", label: "Émergents", annualReturnPct: 7 },
+  { ticker: "PCEU", name: "Amundi PEA Europe", label: "Europe", annualReturnPct: 6 },
+  { ticker: "PUST", name: "Amundi PEA Nasdaq 100", label: "Nasdaq 100", annualReturnPct: 10 },
 ];
 
 export const DEFAULT_RETURN = 7;

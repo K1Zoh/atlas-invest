@@ -2,6 +2,7 @@
 
 import { CalendarClock, Landmark, PiggyBank, Scale, Settings2 } from "lucide-react";
 import { useMemo, useState } from "react";
+import { PeaProjection } from "@/components/pea-projection";
 import { usePortfolio } from "@/components/portfolio-context";
 import { useRefresh, useToast } from "@/components/providers";
 import { Badge, Button, Card, CardHeader, Dialog, EmptyState, Field, Input, PctBadge, Skeleton } from "@/components/ui";
@@ -221,6 +222,8 @@ export default function PeaPage() {
           </Card>
         </>
       )}
+
+      <PeaProjection />
 
       <ManagePeaDialog
         open={managing}

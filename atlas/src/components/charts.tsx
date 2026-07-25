@@ -591,7 +591,7 @@ export function ProjectionChart({
           }}
         />
         <Area
-          type="monotone"
+          type="linear"
           dataKey="band"
           stroke="none"
           fill={`url(#pj-${id})`}
@@ -608,7 +608,7 @@ export function ProjectionChart({
           isAnimationActive={false}
         />
         <Line
-          type="monotone"
+          type="linear"
           dataKey="expected"
           stroke="var(--accent)"
           strokeWidth={2}
