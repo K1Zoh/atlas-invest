@@ -5,7 +5,7 @@ import type { AccountType, AssetClass, Transaction, TxSide } from "./types";
 // feeds a controlled, hand-verified set of transactions (no DB involved).
 vi.mock("./repo", () => ({ listTransactions: vi.fn() }));
 import { listTransactions } from "./repo";
-import { availableTaxYears, computeCryptoTax, computeStockRealized } from "./tax";
+import { availableTaxYears, computeCryptoTax, computeStockRealized, computeStockTax } from "./tax";
 
 let seq = 0;
 function tx(o: {
@@ -140,5 +140,31 @@ describe("availableTaxYears", () => {
       tx({ ticker: "BTC", assetClass: "crypto", side: "sell", quantity: 1, price: 1, txDate: "2025-01-01" }),
     ]);
     expect(availableTaxYears()).toEqual([2025, 2023]);
+  });
+});
+
+describe("computeStockTax — losses offset gains before the 30 % flat tax", () => {
+  it("taxes the net, not the sum of per-line (loss-flooring) estimates", () => {
+    setTxs([
+      tx({ ticker: "WIN", side: "buy", quantity: 10, price: 100, txDate: "2024-01-01" }),
+      tx({ ticker: "LOSS", side: "buy", quantity: 10, price: 100, txDate: "2024-01-01" }),
+      tx({ ticker: "WIN", side: "sell", quantity: 10, price: 150, txDate: "2024-06-01" }),
+      tx({ ticker: "LOSS", side: "sell", quantity: 10, price: 60, txDate: "2024-06-01" }),
+    ]);
+    const r = computeStockTax();
+    expect(r.totalGains).toBeCloseTo(500, 2);
+    expect(r.totalLosses).toBeCloseTo(400, 2);
+    expect(r.net).toBeCloseTo(100, 2);
+    expect(r.pfuEstimate).toBeCloseTo(30, 2); // max(0, 100) × 0.3 — not 500 × 0.3 = 150
+  });
+
+  it("a net-loss year is taxed at zero", () => {
+    setTxs([
+      tx({ ticker: "AAA", side: "buy", quantity: 10, price: 100, txDate: "2024-01-01" }),
+      tx({ ticker: "AAA", side: "sell", quantity: 10, price: 70, txDate: "2024-06-01" }),
+    ]);
+    const r = computeStockTax();
+    expect(r.net).toBeCloseTo(-300, 2);
+    expect(r.pfuEstimate).toBeCloseTo(0, 2);
   });
 });

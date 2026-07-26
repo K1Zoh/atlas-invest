@@ -66,6 +66,33 @@ export function computeStockRealized(year?: number): RealizedLine[] {
   return lines;
 }
 
+export interface StockTaxResult {
+  lines: RealizedLine[];
+  totalGains: number;
+  totalLosses: number;
+  net: number;
+  pfuEstimate: number;
+}
+
+/**
+ * Aggregate stock/ETF realized lines into the declared totals. Losses offset
+ * gains over the period (the PFU applies to the net), so the tax estimate uses
+ * max(0, net) — never the sum of the per-line, loss-flooring estimates.
+ */
+export function computeStockTax(year?: number): StockTaxResult {
+  const lines = computeStockRealized(year);
+  const gains = lines.filter((l) => l.pnl > 0).reduce((s, l) => s + l.pnl, 0);
+  const losses = lines.filter((l) => l.pnl < 0).reduce((s, l) => s + l.pnl, 0);
+  const net = gains + losses;
+  return {
+    lines,
+    totalGains: round2(gains),
+    totalLosses: round2(Math.abs(losses)),
+    net: round2(net),
+    pfuEstimate: round2(Math.max(0, net) * PFU),
+  };
+}
+
 function portfolioValueAtSale(
   portfolio: Map<string, { qty: number; cost: number }>,
   soldTicker: string,
