@@ -128,13 +128,22 @@ function migrate(db: Database.Database): void {
   }
 }
 
+/**
+ * Apply the base schema and idempotent migrations to a connection. Exported so
+ * tests can build a throwaway in-memory database through the exact same DDL as
+ * production, instead of duplicating (and drifting from) the schema.
+ */
+export function initSchema(db: Database.Database): void {
+  db.exec(SCHEMA);
+  migrate(db);
+}
+
 function createDb(): Database.Database {
   fs.mkdirSync(DATA_DIR, { recursive: true });
   const db = new Database(DB_PATH);
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
-  db.exec(SCHEMA);
-  migrate(db);
+  initSchema(db);
   return db;
 }
 
