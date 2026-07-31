@@ -1,23 +1,22 @@
 #!/bin/bash
-# Lancé par l'agent launchd d'Atlas. S'assure que le serveur tourne, puis
-# déclenche la vérification des alertes (qui notifie Discord/Telegram/e-mail).
+# Lancé toutes les 15 minutes par le service macOS « local.atlas.alerts ».
+# Déclenche la vérification des alertes de prix, qui notifie Discord / Telegram
+# / e-mail quand un seuil est franchi.
+#
+# Ce script ne démarre plus le serveur : c'est le rôle du service
+# « local.atlas.server » (voir ./atlas.sh autostart on). Séparer les deux évite
+# qu'une alerte relance un serveur qu'on venait d'arrêter volontairement.
+
 set -u
 
-PORT="${ATLAS_PORT:-3000}"
-APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+PORT="${ATLAS_PORT:-3210}"
+LOG="${ATLAS_HOME:-$HOME/.atlas}/logs/alerts.log"
 
-is_up() { curl -s -o /dev/null --max-time 3 "http://localhost:$PORT"; }
+mkdir -p "$(dirname "$LOG")"
 
-if ! is_up; then
-  cd "$APP_DIR" || exit 1
-  [ -d .next ] || npm run build >/dev/null 2>&1
-  PORT="$PORT" nohup npm run start >/tmp/atlas.log 2>&1 &
-  for _ in $(seq 1 30); do
-    is_up && break
-    sleep 1
-  done
+if curl -fsS --max-time 90 "http://localhost:$PORT/api/cron/check" >> "$LOG" 2>&1; then
+  printf ' — %s\n' "$(date '+%Y-%m-%d %H:%M')" >> "$LOG"
+else
+  printf 'Atlas injoignable sur le port %s — %s\n' \
+    "$PORT" "$(date '+%Y-%m-%d %H:%M')" >> "$LOG"
 fi
-
-curl -s --max-time 90 "http://localhost:$PORT/api/cron/check" >> /tmp/atlas-alerts.log 2>&1
-echo " — $(date)" >> /tmp/atlas-alerts.log

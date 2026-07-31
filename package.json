@@ -1,8 +1,17 @@
 {
+  "name": "atlas-invest",
+  "private": true,
   "scripts": {
-    "install:atlas": "npm install --prefix atlas",
+    "start": "./atlas.sh start",
+    "stop": "./atlas.sh stop",
+    "restart": "./atlas.sh restart",
+    "status": "./atlas.sh status",
+    "update": "./atlas.sh update",
+    "logs": "./atlas.sh logs",
+    "doctor": "./atlas.sh doctor",
+    "setup": "./atlas.sh install",
     "dev": "npm run dev --prefix atlas",
     "build": "npm run build --prefix atlas",
-    "start": "npm run start --prefix atlas"
+    "test": "npm test --prefix atlas"
   }
 }
