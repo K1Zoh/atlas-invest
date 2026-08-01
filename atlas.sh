@@ -35,6 +35,7 @@ URL="http://localhost:$PORT"
 
 MIN_NODE_MAJOR=20
 NODE_FALLBACK_VERSION="v22.21.1"
+UPDATE_INSTALLER_URL="https://raw.githubusercontent.com/K1Zoh/atlas-invest/main/install.sh"
 
 SERVER_LABEL="local.atlas.server"
 ALERTS_LABEL="local.atlas.alerts"
@@ -215,6 +216,18 @@ install_deps() {
            "Relance : $0 install"
   deps_signature > "$(deps_marker)"
   ok "Dépendances prêtes"
+}
+
+# Une mise à jour peut ajouter ou retirer des paquets sans changer de version de
+# Node. npm install est incrémental ici : il synchronise le lockfile sans jeter
+# tous les modules ni recompiler inutilement les dépendances natives.
+sync_deps() {
+  step "Synchronisation des dépendances"
+  ( cd "$APP_DIR" && "$NPM_BIN" install --no-audit --no-fund ) \
+    || die "La mise à jour des dépendances a échoué." \
+           "Relance : $0 update"
+  deps_signature > "$(deps_marker)"
+  ok "Dépendances à jour"
 }
 
 ensure_deps() {
@@ -709,11 +722,30 @@ cmd_update() {
              "Tu as probablement des modifications locales non enregistrées." \
              "Enregistre-les (git commit) ou annule-les, puis relance."
   else
-    warn "Ce dossier n'est pas un dépôt git, rien à récupérer"
+    local tmp status
+    info "Installation par archive détectée, récupération du nouvel installeur…"
+    tmp="$(mktemp -d)" || die "Impossible de créer un dossier temporaire."
+    if ! curl -fsSL --max-time 60 "$UPDATE_INSTALLER_URL" -o "$tmp/install.sh"; then
+      rm -rf "$tmp"
+      die "Impossible de télécharger la mise à jour." \
+          "Vérifie ta connexion internet, puis relance : $0 update"
+    fi
+    ATLAS_DIR="$REPO_DIR" ATLAS_INSTALL_MODE=update-local \
+      /bin/bash "$tmp/install.sh"
+    status=$?
+    rm -rf "$tmp"
+    return "$status"
   fi
 
+  cmd_update_local
+}
+
+# Termine une mise à jour une fois les nouvelles sources récupérées. Cette
+# commande interne est aussi appelée par install.sh pour les installations sans
+# dépôt git, afin d'éviter une boucle de téléchargement.
+cmd_update_local() {
   require_node
-  ensure_deps
+  sync_deps
   run_build
   cmd_restart
 }
@@ -754,6 +786,7 @@ case "${1:-open}" in
   serve)      cmd_serve ;;
   status)     cmd_status ;;
   update)     cmd_update ;;
+  update-local) cmd_update_local ;;
   logs)       cmd_logs ;;
   doctor)     cmd_doctor ;;
   alerts)     cmd_alerts "${2:-on}" ;;

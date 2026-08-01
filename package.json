@@ -12,6 +12,8 @@
     "setup": "./atlas.sh install",
     "dev": "npm run dev --prefix atlas",
     "build": "npm run build --prefix atlas",
-    "test": "npm test --prefix atlas"
+    "test": "npm run test:app && npm run test:install",
+    "test:app": "npm test --prefix atlas",
+    "test:install": "bash tests/install-update.test.sh"
   }
 }

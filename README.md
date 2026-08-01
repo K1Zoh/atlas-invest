@@ -15,13 +15,15 @@ Ouvre l'app **Terminal** (Cmd+Espace, tape « Terminal »), colle cette ligne et
 appuie sur Entrée :
 
 ```bash
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/K1Zoh/atlas-invest/main/install.sh)"
+curl -fsSL https://raw.githubusercontent.com/K1Zoh/atlas-invest/main/install.sh | bash
 ```
 
 C'est tout. Aucun prérequis, **aucun mot de passe demandé**. Le script télécharge
 le code dans `~/Atlas`, installe sa propre copie de Node.js dans `~/.atlas/node`,
 construit l'application, crée l'icône **Atlas** dans le Launchpad, active le
-démarrage automatique, puis ouvre le navigateur.
+démarrage automatique, puis ouvre le navigateur. Il fonctionne aussi si une
+ancienne installation existe déjà : le code est remplacé, mais la base locale
+`atlas/data/`, le fichier `.env` et l'éventuelle archive `OLD/` sont conservés.
 
 Si tu as déjà cloné le dépôt, va dans le dossier et lance :
 
@@ -64,7 +66,7 @@ n'existe qu'une seule implémentation du démarrage.
 
 ```bash
 npm run dev     # serveur de développement (rechargement à chaud)
-npm test        # tests vitest de la logique financière
+npm test        # tests de l'application et du cycle installation/mise à jour
 ```
 
 Après un `npm run dev`, purge `atlas/.next` avant de repasser en mode normal :
@@ -87,16 +89,37 @@ L'app démarre vide et t'accompagne :
 
 ## Mise à jour
 
+Pour l'installation standard dans `~/Atlas` :
+
 ```bash
+~/Atlas/atlas.sh update
+```
+
+Si tu travailles directement dans un clone placé ailleurs :
+
+```bash
+cd /chemin/vers/atlas-invest
 ./atlas.sh update
 ```
 
-Récupère la dernière version, réinstalle ce qui doit l'être, reconstruit et
-redémarre. Tes données ne sont jamais touchées.
+La commande récupère la dernière version, synchronise les dépendances,
+reconstruit l'application et redémarre le serveur. Elle fonctionne aussi pour
+une installation téléchargée sans git. Tes données et tes clés locales ne sont
+jamais touchées.
+
+Tu peux également relancer la commande d'installation : elle détecte Atlas et
+effectue la même remise à niveau sans supprimer les données.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/K1Zoh/atlas-invest/main/install.sh | bash
+```
+
+Dans un clone git qui contient des modifications locales incompatibles, la mise
+à jour s'arrête avec un message au lieu d'écraser ton travail.
 
 Atlas détecte aussi de lui-même un build devenu obsolète : si les sources ont
 changé depuis la dernière construction, le démarrage reconstruit avant de servir.
-Tu ne peux plus te retrouver sur une ancienne version sans le savoir.
+Il ne sert donc jamais un build plus ancien que le code présent sur la machine.
 
 ## Structure du dépôt
 
@@ -126,7 +149,7 @@ Ce qu'Atlas écrit en dehors du dépôt :
 ## En cas de souci
 
 ```bash
-./atlas.sh doctor
+~/Atlas/atlas.sh doctor
 ```
 
 Il vérifie ce que les messages d'erreur ne disent jamais : que Node est bien
@@ -134,7 +157,8 @@ exécutable **sur cette architecture** (un Node Intel sur un Mac Apple Silicon
 existe mais ne démarre pas), que les modules natifs sont compilés pour la bonne
 puce, que le port n'est pas occupé par un autre programme.
 
-Le port se change au besoin : `ATLAS_PORT=3211 ./atlas.sh start`.
+Depuis un clone placé ailleurs, utilise `./atlas.sh doctor`. Le port se change
+au besoin : `ATLAS_PORT=3211 ~/Atlas/atlas.sh start`.
 
 ## Confidentialité
 
