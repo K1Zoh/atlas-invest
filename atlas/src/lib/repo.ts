@@ -1,3 +1,4 @@
+import { Lot } from "./cost-basis";
 import { getDb } from "./db";
 import type {
   AccountType,
@@ -215,51 +216,46 @@ export function getPositions(assetClass?: AssetClass): Position[] {
     .slice()
     .sort((a, b) => (a.txDate === b.txDate ? a.id - b.id : a.txDate.localeCompare(b.txDate)));
 
-  const acc = new Map<string, Position>();
+  const acc = new Map<string, { pos: Position; lot: Lot }>();
   for (const t of txs) {
     const key = `${t.assetClass}:${t.ticker}`;
-    let p = acc.get(key);
-    if (!p) {
-      p = {
-        ticker: t.ticker,
-        name: t.name,
-        assetClass: t.assetClass,
-        quantity: 0,
-        avgCost: 0,
-        invested: 0,
-        realizedPnl: 0,
-        platform: t.platform,
-        account: t.account,
-        coingeckoId: t.coingeckoId,
-        firstBuy: t.txDate,
+    let entry = acc.get(key);
+    if (!entry) {
+      entry = {
+        pos: {
+          ticker: t.ticker,
+          name: t.name,
+          assetClass: t.assetClass,
+          quantity: 0,
+          avgCost: 0,
+          invested: 0,
+          realizedPnl: 0,
+          platform: t.platform,
+          account: t.account,
+          coingeckoId: t.coingeckoId,
+          firstBuy: t.txDate,
+        },
+        lot: new Lot(),
       };
-      acc.set(key, p);
+      acc.set(key, entry);
     }
-    if (t.coingeckoId) p.coingeckoId = t.coingeckoId;
-    if (t.platform) p.platform = t.platform;
-    if (t.account) p.account = t.account;
-    p.name = t.name || p.name;
+    const { pos, lot } = entry;
+    if (t.coingeckoId) pos.coingeckoId = t.coingeckoId;
+    if (t.platform) pos.platform = t.platform;
+    if (t.account) pos.account = t.account;
+    pos.name = t.name || pos.name;
 
     if (t.side === "buy") {
-      p.invested += t.quantity * t.price + t.fees;
-      p.quantity += t.quantity;
+      lot.buy(t.quantity, t.price, t.fees);
     } else {
-      const qtyBefore = p.quantity;
-      if (qtyBefore <= 1e-12) continue;
-      const sellQty = Math.min(t.quantity, qtyBefore);
-      const pru = p.invested / qtyBefore;
-      const proceeds = sellQty * t.price - t.fees;
-      p.realizedPnl += proceeds - pru * sellQty;
-      const keptFraction = Math.max(0, qtyBefore - sellQty) / qtyBefore;
-      p.quantity = qtyBefore - sellQty;
-      p.invested *= keptFraction;
+      const sale = lot.sell(t.quantity, t.price, t.fees);
+      if (sale) pos.realizedPnl += sale.realized;
     }
-    if (p.quantity > 1e-12) p.avgCost = p.invested / p.quantity;
   }
 
   return [...acc.values()]
-    .filter((p) => p.quantity > 1e-9)
-    .map((p) => ({ ...p, avgCost: p.quantity > 0 ? p.invested / p.quantity : 0 }));
+    .map(({ pos, lot }) => ({ ...pos, quantity: lot.quantity, invested: lot.cost, avgCost: lot.avgCost }))
+    .filter((p) => p.quantity > 1e-9);
 }
 
 export function totalRealizedPnl(assetClass?: AssetClass): number {
