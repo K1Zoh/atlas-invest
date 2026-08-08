@@ -16,6 +16,19 @@ fail() {
   exit 1
 }
 
+# Filet de sécurité : aucun test ne doit écrire dans le vrai dossier personnel.
+# install.sh y écrit son registre, et un test qui oublie d'isoler HOME l'a déjà
+# écrasé avec un chemin temporaire.
+REAL_REGISTRY="$HOME/.atlas/install-path"
+REAL_REGISTRY_BEFORE="$(cat "$REAL_REGISTRY" 2>/dev/null || printf '<absent>')"
+
+assert_real_home_untouched() {
+  local now
+  now="$(cat "$REAL_REGISTRY" 2>/dev/null || printf '<absent>')"
+  [ "$now" = "$REAL_REGISTRY_BEFORE" ] \
+    || fail "un test a écrit dans le vrai \$HOME/.atlas — isole HOME dans ce test"
+}
+
 assert_file_contains() {
   local file="$1" expected="$2"
   [ -f "$file" ] || fail "$file should exist"
@@ -148,6 +161,9 @@ test_bootstrap_refreshes_archive_install() {
   make_fake_curl "$fake_bin"
   make_fake_git "$fake_bin"
 
+  # HOME isolé : install.sh écrit le registre dans $HOME/.atlas, et un test ne
+  # doit jamais toucher au vrai dossier personnel.
+  HOME="$TEST_ROOT/bootstrap-home" \
   ATLAS_DIR="$install_dir" \
   ATLAS_INSTALL_MODE=update-local \
   ATLAS_TEST_DOWNLOAD="$TEST_ROOT/release.tar.gz" \
@@ -563,5 +579,6 @@ test_backup_on_writes_daily_agent
 test_update_backs_up_first
 test_restore_replaces_database
 test_restore_refuses_unknown_backup
+assert_real_home_untouched
 
 printf 'PASS: archive installation and update flows\n'
