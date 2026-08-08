@@ -1,9 +1,23 @@
 import Database from "better-sqlite3";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 
-export const DATA_DIR = path.join(process.cwd(), "data");
+/**
+ * Les données vivent hors du dossier d'installation : une mise à jour, un
+ * déplacement du dossier ou une réinstallation ne doivent jamais les atteindre.
+ *
+ * ATLAS_HOME est respecté pour rester aligné sur atlas.sh, qui l'utilise déjà
+ * pour Node, les journaux et les sauvegardes — sans quoi le shell et l'app
+ * pourraient viser deux bases différentes en silence. ATLAS_DATA_DIR reste
+ * disponible pour les tests et les cas particuliers.
+ */
+const ATLAS_HOME = process.env.ATLAS_HOME ?? path.join(os.homedir(), ".atlas");
+export const DATA_DIR = process.env.ATLAS_DATA_DIR ?? path.join(ATLAS_HOME, "data");
 export const DB_PATH = path.join(DATA_DIR, "atlas.db");
+
+/** Emplacement historique, à l'intérieur du dossier d'installation. */
+export const LEGACY_DB_PATH = path.join(process.cwd(), "data", "atlas.db");
 
 declare global {
   // Reuse the connection across hot reloads in dev.
