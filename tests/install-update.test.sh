@@ -457,6 +457,44 @@ test_backup_on_writes_daily_agent() {
     || fail "l'agent doit tourner une fois par jour"
 }
 
+test_update_backs_up_first() {
+  local install_dir="$TEST_ROOT/upbk-install"
+  local atlas_home="$TEST_ROOT/upbk-home"
+  local data_dir="$TEST_ROOT/upbk-data"
+  local fake_bin="$TEST_ROOT/upbk-bin"
+
+  mkdir -p "$install_dir/atlas/src" "$install_dir/atlas/node_modules" \
+    "$atlas_home/node/bin"
+  cp "$PROJECT_DIR/atlas.sh" "$install_dir/atlas.sh"
+  printf '{}\n' > "$install_dir/atlas/package.json"
+  printf '{}\n' > "$install_dir/atlas/next.config.ts"
+  printf '{}\n' > "$install_dir/atlas/tsconfig.json"
+  printf '{}\n' > "$install_dir/atlas/postcss.config.mjs"
+  printf '%s-node22\n' "$(uname -m)" > "$install_dir/atlas/node_modules/.atlas-arch"
+  make_fake_launchctl "$fake_bin"
+  seed_test_db "$data_dir/atlas.db" 3
+
+  printf '#!/bin/bash\necho v22.0.0\n' > "$atlas_home/node/bin/node"
+  printf '%s\n' \
+    '#!/bin/bash' \
+    'if [ "$*" = "run build" ]; then mkdir -p .next; touch .next/BUILD_ID; fi' \
+    'exit 0' \
+    > "$atlas_home/node/bin/npm"
+  chmod +x "$atlas_home/node/bin/node" "$atlas_home/node/bin/npm"
+
+  HOME="$TEST_ROOT/home" \
+  ATLAS_HOME="$atlas_home" \
+  ATLAS_DATA_DIR="$data_dir" \
+  PATH="$fake_bin:/bin:/usr/bin" \
+    /bin/bash "$install_dir/atlas.sh" update-local >/dev/null 2>&1 || true
+
+  local made
+  made="$(find "$atlas_home/backups" -name 'atlas-*-pre-update.db' | head -1)"
+  [ -n "$made" ] || fail "une mise à jour doit sauvegarder avant de toucher au code"
+  [ "$(sqlite3 "$made" 'SELECT COUNT(*) FROM transactions;')" = "3" ] \
+    || fail "la sauvegarde pré-mise-à-jour doit contenir les données"
+}
+
 make_release_tarball
 test_bootstrap_refreshes_archive_install
 test_atlas_update_bootstraps_archive_install
@@ -470,5 +508,6 @@ test_backup_without_database_is_silent_success
 test_backup_rotation_caps_the_directory
 test_backup_failure_preserves_existing_backups
 test_backup_on_writes_daily_agent
+test_update_backs_up_first
 
 printf 'PASS: archive installation and update flows\n'

@@ -842,6 +842,9 @@ cmd_update() {
 # commande interne est aussi appelée par install.sh pour les installations sans
 # dépôt git, afin d'éviter une boucle de téléchargement.
 cmd_update_local() {
+  # Avant tout : un point de retour. C'est le passage obligé de toutes les
+  # routes de mise à jour, donc le seul endroit où ce filet est garanti.
+  do_backup pre-update || warn "Mise à jour poursuivie sans sauvegarde préalable"
   require_node
   sync_deps
   run_build
