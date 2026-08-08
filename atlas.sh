@@ -13,6 +13,8 @@
 #   ./atlas.sh doctor       diagnostic
 #   ./atlas.sh alerts on    alertes de prix même app fermée (off pour couper)
 #   ./atlas.sh autostart on démarrage automatique à l'ouverture de session
+#   ./atlas.sh backup       sauvegarde tout de suite (list, on, off)
+#   ./atlas.sh restore      remet la dernière sauvegarde (ou un fichier précis)
 #   ./atlas.sh uninstall    retire icône, services et Node local (garde tes données)
 #
 # L'icône du Launchpad et les services macOS appellent ce script : il n'existe
@@ -461,7 +463,14 @@ cmd_status() {
     && printf "  Icône         installée\n" \
     || printf "  Icône         absente\n"
 
-  printf "\n  Données       %s\n" "$APP_DIR/data"
+  printf "\n  Données       %s\n" "$DATA_DIR"
+  if [ -d "$BACKUP_DIR" ] && ls "$BACKUP_DIR"/atlas-*.db >/dev/null 2>&1; then
+    printf "  Sauvegardes   %s (dernière : %s)\n" \
+      "$BACKUP_DIR" \
+      "$(date -r "$(ls -1t "$BACKUP_DIR"/atlas-*.db | head -1)" '+%Y-%m-%d %H:%M')"
+  else
+    printf "  Sauvegardes   %s (aucune pour l'instant)\n" "$BACKUP_DIR"
+  fi
   printf "  Journal       %s\n\n" "$LOG_FILE"
 }
 
@@ -831,6 +840,8 @@ cmd_install() {
 
   create_app_bundle
   cmd_autostart on
+  # Activée d'office : personne ne pensera à lancer « atlas.sh backup on ».
+  cmd_backup on
 
   if wait_until_up; then
     ok "Atlas est en ligne sur $URL"
@@ -897,15 +908,17 @@ cmd_uninstall() {
   cmd_stop
   unload_agent "$SERVER_LABEL" "$SERVER_PLIST"
   unload_agent "$ALERTS_LABEL" "$ALERTS_PLIST"
+  unload_agent "$BACKUP_LABEL" "$BACKUP_PLIST"
   rm -rf "$APP_BUNDLE"
   rm -rf "$NODE_DIR"
   ok "Icône, services et Node local retirés"
-  info "Tes données sont intactes : $APP_DIR/data"
+  info "Tes données sont intactes : $DATA_DIR"
+  info "Tes sauvegardes sont intactes : $BACKUP_DIR"
   info "Le code est intact : $REPO_DIR"
 }
 
 cmd_help() {
-  sed -n '2,25p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '2,22p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
 
 # ── Aiguillage ───────────────────────────────────────────────────────────────
