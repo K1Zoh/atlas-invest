@@ -13,6 +13,8 @@
 #   ./atlas.sh doctor       diagnostic
 #   ./atlas.sh alerts on    alertes de prix même app fermée (off pour couper)
 #   ./atlas.sh autostart on démarrage automatique à l'ouverture de session
+#   ./atlas.sh backup       sauvegarde tout de suite (list, on, off)
+#   ./atlas.sh restore      remet la dernière sauvegarde (ou un fichier précis)
 #   ./atlas.sh uninstall    retire icône, services et Node local (garde tes données)
 #
 # L'icône du Launchpad et les services macOS appellent ce script : il n'existe
@@ -30,6 +32,16 @@ LOG_DIR="$ATLAS_HOME/logs"
 LOG_FILE="$LOG_DIR/atlas.log"
 ALERTS_LOG="$LOG_DIR/alerts.log"
 
+# Les données et les sauvegardes vivent hors du dossier d'installation : une
+# mise à jour, un déplacement ou une réinstallation ne peuvent plus les
+# atteindre. Doit rester aligné sur src/lib/db.ts.
+DATA_DIR="${ATLAS_DATA_DIR:-$ATLAS_HOME/data}"
+DB_FILE="$DATA_DIR/atlas.db"
+BACKUP_DIR="${ATLAS_BACKUP_DIR:-$ATLAS_HOME/backups}"
+ICLOUD_BACKUP_DIR="$HOME/Library/Mobile Documents/com~apple~CloudDocs/Atlas"
+# Surchargeable pour que les tests vérifient la rotation sans écrire 31 fichiers.
+BACKUP_KEEP="${ATLAS_BACKUP_KEEP:-30}"
+
 PORT="${ATLAS_PORT:-3210}"
 URL="http://localhost:$PORT"
 
@@ -42,6 +54,8 @@ ALERTS_LABEL="local.atlas.alerts"
 AGENTS_DIR="$HOME/Library/LaunchAgents"
 SERVER_PLIST="$AGENTS_DIR/$SERVER_LABEL.plist"
 ALERTS_PLIST="$AGENTS_DIR/$ALERTS_LABEL.plist"
+BACKUP_LABEL="local.atlas.backup"
+BACKUP_PLIST="$AGENTS_DIR/$BACKUP_LABEL.plist"
 APP_BUNDLE="/Applications/Atlas.app"
 
 NODE_BIN=""
@@ -449,7 +463,14 @@ cmd_status() {
     && printf "  Icône         installée\n" \
     || printf "  Icône         absente\n"
 
-  printf "\n  Données       %s\n" "$APP_DIR/data"
+  printf "\n  Données       %s\n" "$DATA_DIR"
+  if [ -d "$BACKUP_DIR" ] && ls "$BACKUP_DIR"/atlas-*.db >/dev/null 2>&1; then
+    printf "  Sauvegardes   %s (dernière : %s)\n" \
+      "$BACKUP_DIR" \
+      "$(date -r "$(ls -1t "$BACKUP_DIR"/atlas-*.db | head -1)" '+%Y-%m-%d %H:%M')"
+  else
+    printf "  Sauvegardes   %s (aucune pour l'instant)\n" "$BACKUP_DIR"
+  fi
   printf "  Journal       %s\n\n" "$LOG_FILE"
 }
 
@@ -682,6 +703,128 @@ cmd_alerts() {
   esac
 }
 
+# ── Sauvegardes ──────────────────────────────────────────────────────────────
+
+# Une sauvegarde vérifiée, ou rien. Un fichier corrompu ne doit jamais chasser
+# une sauvegarde saine : la rotation n'a lieu qu'après integrity_check.
+do_backup() {
+  local reason="${1:-manuel}" stamp staging dest sum previous
+
+  [ -f "$DB_FILE" ] || { info "Aucune base à sauvegarder pour l'instant"; return 0; }
+  command -v sqlite3 >/dev/null 2>&1 \
+    || { warn "sqlite3 introuvable, sauvegarde ignorée"; return 0; }
+
+  mkdir -p "$BACKUP_DIR"
+  stamp="$(date +%Y%m%d-%H%M%S)"
+  staging="$BACKUP_DIR/.en-cours-$stamp.db"
+
+  if ! sqlite3 "$DB_FILE" ".backup '$staging'" 2>/dev/null; then
+    rm -f "$staging"
+    warn "Sauvegarde impossible (base verrouillée ou illisible)"
+    return 1
+  fi
+
+  if [ "$(sqlite3 "$staging" 'PRAGMA integrity_check;' 2>/dev/null)" != "ok" ]; then
+    rm -f "$staging"
+    warn "Sauvegarde corrompue, abandon — les sauvegardes existantes sont conservées"
+    return 1
+  fi
+
+  # Une base inchangée ne mérite pas un second fichier : on préfère 30 états
+  # distincts à 30 copies du même jour.
+  sum="$(shasum -a 256 "$staging" | cut -d' ' -f1)"
+  previous="$(ls -1t "$BACKUP_DIR"/atlas-*.db 2>/dev/null | head -1)"
+  if [ -n "$previous" ] \
+     && [ "$(shasum -a 256 "$previous" | cut -d' ' -f1)" = "$sum" ]; then
+    rm -f "$staging"
+    info "Base inchangée depuis la dernière sauvegarde"
+    return 0
+  fi
+
+  dest="$BACKUP_DIR/atlas-$stamp-$reason.db"
+  mv "$staging" "$dest"
+  ok "Sauvegarde : $dest"
+
+  # iCloud si présent, silence sinon — jamais d'erreur pour ça.
+  if [ -d "$(dirname "$ICLOUD_BACKUP_DIR")" ]; then
+    mkdir -p "$ICLOUD_BACKUP_DIR" 2>/dev/null \
+      && cp "$dest" "$ICLOUD_BACKUP_DIR/" 2>/dev/null \
+      && info "Copie iCloud effectuée"
+  fi
+
+  # Rotation, une fois la nouvelle sauvegarde en place et vérifiée.
+  ls -1t "$BACKUP_DIR"/atlas-*.db 2>/dev/null \
+    | tail -n +$((BACKUP_KEEP + 1)) \
+    | while IFS= read -r old; do rm -f "$old"; done
+
+  return 0
+}
+
+cmd_backup() {
+  case "${1:-now}" in
+    now) step "Sauvegarde"; do_backup manuel ;;
+    list)
+      step "Sauvegardes disponibles"
+      if [ -d "$BACKUP_DIR" ] && ls "$BACKUP_DIR"/atlas-*.db >/dev/null 2>&1; then
+        ls -1t "$BACKUP_DIR"/atlas-*.db | while IFS= read -r f; do
+          printf "  %s  %s\n" "$(date -r "$f" '+%Y-%m-%d %H:%M')" "$(basename "$f")"
+        done
+      else
+        info "Aucune sauvegarde pour l'instant"
+      fi
+      ;;
+    on)
+      step "Sauvegarde quotidienne"
+      mkdir -p "$LOG_DIR"
+      write_plist "$BACKUP_PLIST" "$BACKUP_LABEL" 86400 \
+        /bin/bash "$REPO_DIR/atlas.sh" backup
+      load_agent "$BACKUP_LABEL" "$BACKUP_PLIST"
+      ok "Une sauvegarde par jour dans $BACKUP_DIR"
+      ;;
+    off)
+      unload_agent "$BACKUP_LABEL" "$BACKUP_PLIST"
+      ok "Sauvegarde quotidienne désactivée"
+      ;;
+    *) die "Usage : $0 backup [now|list|on|off]" ;;
+  esac
+}
+
+cmd_restore() {
+  local wanted="${1:-latest}" source resume=0
+
+  case "$wanted" in
+    latest) source="$(ls -1t "$BACKUP_DIR"/atlas-*.db 2>/dev/null | head -1)" ;;
+    /*)     source="$wanted" ;;
+    *)      source="$BACKUP_DIR/$wanted" ;;
+  esac
+
+  [ -n "$source" ] && [ -f "$source" ] \
+    || die "Sauvegarde introuvable : $wanted" \
+           "Lance « $0 backup list » pour voir les sauvegardes disponibles."
+
+  command -v sqlite3 >/dev/null 2>&1 || die "sqlite3 est nécessaire pour restaurer."
+  [ "$(sqlite3 "$source" 'PRAGMA integrity_check;' 2>/dev/null)" = "ok" ] \
+    || die "Cette sauvegarde est illisible : $source"
+
+  step "Restauration depuis $(basename "$source")"
+
+  # On ne relance que ce qui tournait. Mais si le démarrage automatique est
+  # actif, l'agent doit repartir : le laisser déchargé le condamnerait jusqu'à
+  # la prochaine ouverture de session.
+  if is_running || autostart_enabled; then resume=1; fi
+  if [ "$resume" -eq 1 ]; then cmd_stop; fi
+
+  do_backup avant-restauration || warn "État courant non sauvegardé"
+
+  mkdir -p "$DATA_DIR"
+  cp "$source" "$DB_FILE"
+  # Un WAL périmé se réappliquerait par-dessus la base restaurée.
+  rm -f "$DB_FILE-wal" "$DB_FILE-shm"
+  ok "Base restaurée"
+
+  if [ "$resume" -eq 1 ]; then cmd_start; fi
+}
+
 # ── Installation, mise à jour, désinstallation ───────────────────────────────
 
 cmd_install() {
@@ -697,6 +840,8 @@ cmd_install() {
 
   create_app_bundle
   cmd_autostart on
+  # Activée d'office : personne ne pensera à lancer « atlas.sh backup on ».
+  cmd_backup on
 
   if wait_until_up; then
     ok "Atlas est en ligne sur $URL"
@@ -744,6 +889,9 @@ cmd_update() {
 # commande interne est aussi appelée par install.sh pour les installations sans
 # dépôt git, afin d'éviter une boucle de téléchargement.
 cmd_update_local() {
+  # Avant tout : un point de retour. C'est le passage obligé de toutes les
+  # routes de mise à jour, donc le seul endroit où ce filet est garanti.
+  do_backup pre-update || warn "Mise à jour poursuivie sans sauvegarde préalable"
   require_node
   sync_deps
   run_build
@@ -760,15 +908,17 @@ cmd_uninstall() {
   cmd_stop
   unload_agent "$SERVER_LABEL" "$SERVER_PLIST"
   unload_agent "$ALERTS_LABEL" "$ALERTS_PLIST"
+  unload_agent "$BACKUP_LABEL" "$BACKUP_PLIST"
   rm -rf "$APP_BUNDLE"
   rm -rf "$NODE_DIR"
   ok "Icône, services et Node local retirés"
-  info "Tes données sont intactes : $APP_DIR/data"
+  info "Tes données sont intactes : $DATA_DIR"
+  info "Tes sauvegardes sont intactes : $BACKUP_DIR"
   info "Le code est intact : $REPO_DIR"
 }
 
 cmd_help() {
-  sed -n '2,25p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '2,22p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
 
 # ── Aiguillage ───────────────────────────────────────────────────────────────
@@ -790,6 +940,8 @@ case "${1:-open}" in
   logs)       cmd_logs ;;
   doctor)     cmd_doctor ;;
   alerts)     cmd_alerts "${2:-on}" ;;
+  backup)     cmd_backup "${2:-now}" ;;
+  restore)    cmd_restore "${2:-latest}" ;;
   autostart)  cmd_autostart "${2:-on}" ;;
   uninstall)  cmd_uninstall ;;
   help|-h|--help) cmd_help ;;

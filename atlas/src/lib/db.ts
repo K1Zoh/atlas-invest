@@ -1,9 +1,23 @@
 import Database from "better-sqlite3";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 
-export const DATA_DIR = path.join(process.cwd(), "data");
+/**
+ * Les données vivent hors du dossier d'installation : une mise à jour, un
+ * déplacement du dossier ou une réinstallation ne doivent jamais les atteindre.
+ *
+ * ATLAS_HOME est respecté pour rester aligné sur atlas.sh, qui l'utilise déjà
+ * pour Node, les journaux et les sauvegardes — sans quoi le shell et l'app
+ * pourraient viser deux bases différentes en silence. ATLAS_DATA_DIR reste
+ * disponible pour les tests et les cas particuliers.
+ */
+const ATLAS_HOME = process.env.ATLAS_HOME ?? path.join(os.homedir(), ".atlas");
+export const DATA_DIR = process.env.ATLAS_DATA_DIR ?? path.join(ATLAS_HOME, "data");
 export const DB_PATH = path.join(DATA_DIR, "atlas.db");
+
+/** Emplacement historique, à l'intérieur du dossier d'installation. */
+export const LEGACY_DB_PATH = path.join(process.cwd(), "data", "atlas.db");
 
 declare global {
   // Reuse the connection across hot reloads in dev.
@@ -138,7 +152,73 @@ export function initSchema(db: Database.Database): void {
   migrate(db);
 }
 
+/**
+ * Déplace la base de l'ancien emplacement (dans le dossier d'installation) vers
+ * le nouveau, une seule fois. Ordre imposé, du plus sûr au plus destructeur :
+ * checkpoint, copie, vérification, bascule, mise de côté de l'original.
+ *
+ * Tout est synchrone : appelée pendant l'initialisation de getDb(), avant que
+ * quiconque puisse écrire. C'est aussi pourquoi on replie le WAL à la main
+ * plutôt que d'utiliser l'API backup() de better-sqlite3, qui est asynchrone.
+ *
+ * L'original n'est jamais supprimé, seulement renommé.
+ */
+export function migrateLegacyDb(): void {
+  if (path.resolve(DB_PATH) === path.resolve(LEGACY_DB_PATH)) return;
+  if (fs.existsSync(DB_PATH)) return;
+  if (!fs.existsSync(LEGACY_DB_PATH)) return;
+
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+  const staging = `${DB_PATH}.migration`;
+  fs.rmSync(staging, { force: true });
+
+  // Replier le WAL dans le fichier principal, sinon la copie serait incomplète.
+  const source = new Database(LEGACY_DB_PATH);
+  try {
+    source.pragma("wal_checkpoint(TRUNCATE)");
+  } finally {
+    source.close();
+  }
+
+  fs.copyFileSync(LEGACY_DB_PATH, staging);
+
+  let healthy = false;
+  try {
+    const probe = new Database(staging, { readonly: true, fileMustExist: true });
+    try {
+      healthy = probe.pragma("integrity_check", { simple: true }) === "ok";
+    } finally {
+      probe.close();
+    }
+  } catch {
+    healthy = false;
+  }
+
+  if (!healthy) {
+    fs.rmSync(staging, { force: true });
+    throw new Error(
+      `Migration annulée : la copie de ${LEGACY_DB_PATH} n'a pas passé integrity_check. ` +
+        `L'original est intact.`,
+    );
+  }
+
+  fs.renameSync(staging, DB_PATH);
+  // Ouvrir une base WAL, même en lecture seule, crée ses -wal/-shm : ils
+  // porteraient le nom du fichier de travail et survivraient à la bascule.
+  for (const ext of ["-wal", "-shm"]) {
+    fs.rmSync(staging + ext, { force: true });
+  }
+
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  fs.renameSync(LEGACY_DB_PATH, `${LEGACY_DB_PATH}.migre-${stamp}`);
+  // Un -wal orphelin se réappliquerait lors d'une restauration ultérieure.
+  for (const ext of ["-wal", "-shm"]) {
+    fs.rmSync(LEGACY_DB_PATH + ext, { force: true });
+  }
+}
+
 function createDb(): Database.Database {
+  migrateLegacyDb();
   fs.mkdirSync(DATA_DIR, { recursive: true });
   const db = new Database(DB_PATH);
   db.pragma("journal_mode = WAL");
