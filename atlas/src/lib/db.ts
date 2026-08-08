@@ -203,6 +203,11 @@ export function migrateLegacyDb(): void {
   }
 
   fs.renameSync(staging, DB_PATH);
+  // Ouvrir une base WAL, même en lecture seule, crée ses -wal/-shm : ils
+  // porteraient le nom du fichier de travail et survivraient à la bascule.
+  for (const ext of ["-wal", "-shm"]) {
+    fs.rmSync(staging + ext, { force: true });
+  }
 
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   fs.renameSync(LEGACY_DB_PATH, `${LEGACY_DB_PATH}.migre-${stamp}`);

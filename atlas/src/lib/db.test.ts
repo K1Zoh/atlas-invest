@@ -90,6 +90,10 @@ describe("migration de l'ancienne base", () => {
       .filter((f) => f.startsWith("atlas.db.migre-"));
     expect(kept).toHaveLength(1);
 
+    // Aucun résidu du fichier de travail : ouvrir une base WAL en lecture crée
+    // ses -wal/-shm, qui ne doivent pas survivre à la bascule.
+    expect(fs.readdirSync(dataDir).filter((f) => f.includes(".migration"))).toEqual([]);
+
     spy.mockRestore();
     fs.rmSync(root, { recursive: true, force: true });
   });
