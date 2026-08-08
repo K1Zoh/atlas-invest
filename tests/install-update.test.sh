@@ -78,6 +78,35 @@ make_fake_git() {
   chmod +x "$bin_dir/git"
 }
 
+# launchctl de substitution. Sans lui, un test qui active un agent en
+# enregistrerait un VRAI dans launchd, pointant vers un dossier temporaire
+# supprimé à la fin de la suite.
+make_fake_launchctl() {
+  local bin_dir="$1"
+  mkdir -p "$bin_dir"
+  printf '#!/bin/bash\nexit 0\n' > "$bin_dir/launchctl"
+  chmod +x "$bin_dir/launchctl"
+}
+
+# Base SQLite minimale mais crédible, à l'emplacement des données.
+seed_test_db() {
+  local file="$1" rows="$2" i=0
+  mkdir -p "$(dirname "$file")"
+  sqlite3 "$file" \
+    "CREATE TABLE IF NOT EXISTS transactions (id INTEGER PRIMARY KEY, ticker TEXT);"
+  while [ "$i" -lt "$rows" ]; do
+    sqlite3 "$file" "INSERT INTO transactions (ticker) VALUES ('T$i');"
+    i=$((i + 1))
+  done
+}
+
+# Installation minimale capable de faire tourner atlas.sh.
+make_runnable_install() {
+  local dir="$1"
+  mkdir -p "$dir/atlas"
+  cp "$PROJECT_DIR/atlas.sh" "$dir/atlas.sh"
+}
+
 # Plist minimal de l'agent serveur, tel que write_plist le produit.
 write_server_plist() {
   local plist="$1" workdir="$2"
@@ -280,6 +309,154 @@ test_fresh_machine_installs_to_default_quietly() {
   assert_file_contains "$fake_home/.atlas/install-path" "$fake_home/Atlas"
 }
 
+test_backup_creates_verified_copy() {
+  local atlas_home="$TEST_ROOT/bk-home"
+  local data_dir="$TEST_ROOT/bk-data"
+  local install_dir="$TEST_ROOT/bk-install"
+  local fake_bin="$TEST_ROOT/bk-bin"
+
+  make_runnable_install "$install_dir"
+  make_fake_launchctl "$fake_bin"
+  seed_test_db "$data_dir/atlas.db" 4
+
+  HOME="$TEST_ROOT/home" \
+  ATLAS_HOME="$atlas_home" \
+  ATLAS_DATA_DIR="$data_dir" \
+  PATH="$fake_bin:/bin:/usr/bin" \
+    /bin/bash "$install_dir/atlas.sh" backup >/dev/null
+
+  local count made
+  count="$(find "$atlas_home/backups" -name 'atlas-*.db' | wc -l | tr -d ' ')"
+  [ "$count" = "1" ] || fail "une sauvegarde devait être créée, trouvé $count"
+  made="$(find "$atlas_home/backups" -name 'atlas-*.db' | head -1)"
+  [ "$(sqlite3 "$made" 'SELECT COUNT(*) FROM transactions;')" = "4" ] \
+    || fail "la sauvegarde doit contenir les 4 lignes"
+}
+
+test_backup_skips_identical_snapshot() {
+  local atlas_home="$TEST_ROOT/bk2-home"
+  local data_dir="$TEST_ROOT/bk2-data"
+  local install_dir="$TEST_ROOT/bk2-install"
+  local fake_bin="$TEST_ROOT/bk2-bin"
+
+  make_runnable_install "$install_dir"
+  make_fake_launchctl "$fake_bin"
+  seed_test_db "$data_dir/atlas.db" 2
+
+  local n=0
+  while [ "$n" -lt 2 ]; do
+    HOME="$TEST_ROOT/home" \
+    ATLAS_HOME="$atlas_home" \
+    ATLAS_DATA_DIR="$data_dir" \
+    PATH="$fake_bin:/bin:/usr/bin" \
+      /bin/bash "$install_dir/atlas.sh" backup >/dev/null
+    sleep 1
+    n=$((n + 1))
+  done
+
+  local count
+  count="$(find "$atlas_home/backups" -name 'atlas-*.db' | wc -l | tr -d ' ')"
+  [ "$count" = "1" ] \
+    || fail "une base inchangée ne doit pas produire un second fichier, trouvé $count"
+}
+
+test_backup_without_database_is_silent_success() {
+  local install_dir="$TEST_ROOT/bk3-install"
+  local fake_bin="$TEST_ROOT/bk3-bin"
+
+  make_runnable_install "$install_dir"
+  make_fake_launchctl "$fake_bin"
+
+  HOME="$TEST_ROOT/home" \
+  ATLAS_HOME="$TEST_ROOT/bk3-home" \
+  ATLAS_DATA_DIR="$TEST_ROOT/bk3-absent" \
+  PATH="$fake_bin:/bin:/usr/bin" \
+    /bin/bash "$install_dir/atlas.sh" backup >/dev/null \
+    || fail "sans base, la sauvegarde doit réussir sans rien faire"
+}
+
+test_backup_rotation_caps_the_directory() {
+  local atlas_home="$TEST_ROOT/bk4-home"
+  local data_dir="$TEST_ROOT/bk4-data"
+  local install_dir="$TEST_ROOT/bk4-install"
+  local fake_bin="$TEST_ROOT/bk4-bin"
+
+  make_runnable_install "$install_dir"
+  make_fake_launchctl "$fake_bin"
+  seed_test_db "$data_dir/atlas.db" 1
+
+  local i=0
+  while [ "$i" -lt 3 ]; do
+    sqlite3 "$data_dir/atlas.db" "INSERT INTO transactions (ticker) VALUES ('R$i');"
+    HOME="$TEST_ROOT/home" \
+    ATLAS_HOME="$atlas_home" \
+    ATLAS_DATA_DIR="$data_dir" \
+    ATLAS_BACKUP_KEEP=2 \
+    PATH="$fake_bin:/bin:/usr/bin" \
+      /bin/bash "$install_dir/atlas.sh" backup >/dev/null
+    sleep 1
+    i=$((i + 1))
+  done
+
+  local count
+  count="$(find "$atlas_home/backups" -name 'atlas-*.db' | wc -l | tr -d ' ')"
+  [ "$count" = "2" ] || fail "la rotation doit plafonner à 2, trouvé $count"
+}
+
+test_backup_failure_preserves_existing_backups() {
+  local atlas_home="$TEST_ROOT/bk5-home"
+  local data_dir="$TEST_ROOT/bk5-data"
+  local install_dir="$TEST_ROOT/bk5-install"
+  local fake_bin="$TEST_ROOT/bk5-bin"
+
+  make_runnable_install "$install_dir"
+  make_fake_launchctl "$fake_bin"
+  seed_test_db "$data_dir/atlas.db" 3
+
+  HOME="$TEST_ROOT/home" ATLAS_HOME="$atlas_home" ATLAS_DATA_DIR="$data_dir" \
+  PATH="$fake_bin:/bin:/usr/bin" \
+    /bin/bash "$install_dir/atlas.sh" backup >/dev/null
+
+  # La base source devient illisible : la sauvegarde doit échouer sans purger.
+  printf 'SQLite format 3\000' > "$data_dir/atlas.db"
+  dd if=/dev/zero bs=1024 count=4 2>/dev/null | tr '\000' '\177' >> "$data_dir/atlas.db"
+
+  # L'échec est le comportement attendu ici : sans « || true », le set -e de la
+  # suite ferait avorter tout le script sans message.
+  HOME="$TEST_ROOT/home" ATLAS_HOME="$atlas_home" ATLAS_DATA_DIR="$data_dir" \
+  PATH="$fake_bin:/bin:/usr/bin" \
+    /bin/bash "$install_dir/atlas.sh" backup >/dev/null 2>&1 \
+    && fail "une sauvegarde sur base illisible doit échouer, pas réussir"
+
+  local count
+  count="$(find "$atlas_home/backups" -name 'atlas-*.db' | wc -l | tr -d ' ')"
+  [ "$count" = "1" ] \
+    || fail "une sauvegarde ratée ne doit ni ajouter ni purger, trouvé $count"
+  if find "$atlas_home/backups" -name '.en-cours-*' | grep -q .; then
+    fail "aucun fichier temporaire ne doit rester après un échec"
+  fi
+}
+
+test_backup_on_writes_daily_agent() {
+  local atlas_home="$TEST_ROOT/bk6-home"
+  local fake_home="$TEST_ROOT/bk6-fakehome"
+  local install_dir="$TEST_ROOT/bk6-install"
+  local fake_bin="$TEST_ROOT/bk6-bin"
+
+  make_runnable_install "$install_dir"
+  make_fake_launchctl "$fake_bin"
+  mkdir -p "$fake_home/Library/LaunchAgents"
+
+  HOME="$fake_home" ATLAS_HOME="$atlas_home" \
+  PATH="$fake_bin:/bin:/usr/bin" \
+    /bin/bash "$install_dir/atlas.sh" backup on >/dev/null 2>&1
+
+  local plist="$fake_home/Library/LaunchAgents/local.atlas.backup.plist"
+  [ -f "$plist" ] || fail "backup on doit écrire le plist de l'agent quotidien"
+  grep -q "<integer>86400</integer>" "$plist" \
+    || fail "l'agent doit tourner une fois par jour"
+}
+
 make_release_tarball
 test_bootstrap_refreshes_archive_install
 test_atlas_update_bootstraps_archive_install
@@ -287,5 +464,11 @@ test_update_local_syncs_dependencies
 test_installer_adopts_running_install
 test_explicit_atlas_dir_wins_over_detection
 test_fresh_machine_installs_to_default_quietly
+test_backup_creates_verified_copy
+test_backup_skips_identical_snapshot
+test_backup_without_database_is_silent_success
+test_backup_rotation_caps_the_directory
+test_backup_failure_preserves_existing_backups
+test_backup_on_writes_daily_agent
 
 printf 'PASS: archive installation and update flows\n'

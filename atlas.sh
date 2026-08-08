@@ -30,6 +30,16 @@ LOG_DIR="$ATLAS_HOME/logs"
 LOG_FILE="$LOG_DIR/atlas.log"
 ALERTS_LOG="$LOG_DIR/alerts.log"
 
+# Les données et les sauvegardes vivent hors du dossier d'installation : une
+# mise à jour, un déplacement ou une réinstallation ne peuvent plus les
+# atteindre. Doit rester aligné sur src/lib/db.ts.
+DATA_DIR="${ATLAS_DATA_DIR:-$ATLAS_HOME/data}"
+DB_FILE="$DATA_DIR/atlas.db"
+BACKUP_DIR="${ATLAS_BACKUP_DIR:-$ATLAS_HOME/backups}"
+ICLOUD_BACKUP_DIR="$HOME/Library/Mobile Documents/com~apple~CloudDocs/Atlas"
+# Surchargeable pour que les tests vérifient la rotation sans écrire 31 fichiers.
+BACKUP_KEEP="${ATLAS_BACKUP_KEEP:-30}"
+
 PORT="${ATLAS_PORT:-3210}"
 URL="http://localhost:$PORT"
 
@@ -42,6 +52,8 @@ ALERTS_LABEL="local.atlas.alerts"
 AGENTS_DIR="$HOME/Library/LaunchAgents"
 SERVER_PLIST="$AGENTS_DIR/$SERVER_LABEL.plist"
 ALERTS_PLIST="$AGENTS_DIR/$ALERTS_LABEL.plist"
+BACKUP_LABEL="local.atlas.backup"
+BACKUP_PLIST="$AGENTS_DIR/$BACKUP_LABEL.plist"
 APP_BUNDLE="/Applications/Atlas.app"
 
 NODE_BIN=""
@@ -682,6 +694,92 @@ cmd_alerts() {
   esac
 }
 
+# ── Sauvegardes ──────────────────────────────────────────────────────────────
+
+# Une sauvegarde vérifiée, ou rien. Un fichier corrompu ne doit jamais chasser
+# une sauvegarde saine : la rotation n'a lieu qu'après integrity_check.
+do_backup() {
+  local reason="${1:-manuel}" stamp staging dest sum previous
+
+  [ -f "$DB_FILE" ] || { info "Aucune base à sauvegarder pour l'instant"; return 0; }
+  command -v sqlite3 >/dev/null 2>&1 \
+    || { warn "sqlite3 introuvable, sauvegarde ignorée"; return 0; }
+
+  mkdir -p "$BACKUP_DIR"
+  stamp="$(date +%Y%m%d-%H%M%S)"
+  staging="$BACKUP_DIR/.en-cours-$stamp.db"
+
+  if ! sqlite3 "$DB_FILE" ".backup '$staging'" 2>/dev/null; then
+    rm -f "$staging"
+    warn "Sauvegarde impossible (base verrouillée ou illisible)"
+    return 1
+  fi
+
+  if [ "$(sqlite3 "$staging" 'PRAGMA integrity_check;' 2>/dev/null)" != "ok" ]; then
+    rm -f "$staging"
+    warn "Sauvegarde corrompue, abandon — les sauvegardes existantes sont conservées"
+    return 1
+  fi
+
+  # Une base inchangée ne mérite pas un second fichier : on préfère 30 états
+  # distincts à 30 copies du même jour.
+  sum="$(shasum -a 256 "$staging" | cut -d' ' -f1)"
+  previous="$(ls -1t "$BACKUP_DIR"/atlas-*.db 2>/dev/null | head -1)"
+  if [ -n "$previous" ] \
+     && [ "$(shasum -a 256 "$previous" | cut -d' ' -f1)" = "$sum" ]; then
+    rm -f "$staging"
+    info "Base inchangée depuis la dernière sauvegarde"
+    return 0
+  fi
+
+  dest="$BACKUP_DIR/atlas-$stamp-$reason.db"
+  mv "$staging" "$dest"
+  ok "Sauvegarde : $dest"
+
+  # iCloud si présent, silence sinon — jamais d'erreur pour ça.
+  if [ -d "$(dirname "$ICLOUD_BACKUP_DIR")" ]; then
+    mkdir -p "$ICLOUD_BACKUP_DIR" 2>/dev/null \
+      && cp "$dest" "$ICLOUD_BACKUP_DIR/" 2>/dev/null \
+      && info "Copie iCloud effectuée"
+  fi
+
+  # Rotation, une fois la nouvelle sauvegarde en place et vérifiée.
+  ls -1t "$BACKUP_DIR"/atlas-*.db 2>/dev/null \
+    | tail -n +$((BACKUP_KEEP + 1)) \
+    | while IFS= read -r old; do rm -f "$old"; done
+
+  return 0
+}
+
+cmd_backup() {
+  case "${1:-now}" in
+    now) step "Sauvegarde"; do_backup manuel ;;
+    list)
+      step "Sauvegardes disponibles"
+      if [ -d "$BACKUP_DIR" ] && ls "$BACKUP_DIR"/atlas-*.db >/dev/null 2>&1; then
+        ls -1t "$BACKUP_DIR"/atlas-*.db | while IFS= read -r f; do
+          printf "  %s  %s\n" "$(date -r "$f" '+%Y-%m-%d %H:%M')" "$(basename "$f")"
+        done
+      else
+        info "Aucune sauvegarde pour l'instant"
+      fi
+      ;;
+    on)
+      step "Sauvegarde quotidienne"
+      mkdir -p "$LOG_DIR"
+      write_plist "$BACKUP_PLIST" "$BACKUP_LABEL" 86400 \
+        /bin/bash "$REPO_DIR/atlas.sh" backup
+      load_agent "$BACKUP_LABEL" "$BACKUP_PLIST"
+      ok "Une sauvegarde par jour dans $BACKUP_DIR"
+      ;;
+    off)
+      unload_agent "$BACKUP_LABEL" "$BACKUP_PLIST"
+      ok "Sauvegarde quotidienne désactivée"
+      ;;
+    *) die "Usage : $0 backup [now|list|on|off]" ;;
+  esac
+}
+
 # ── Installation, mise à jour, désinstallation ───────────────────────────────
 
 cmd_install() {
@@ -790,6 +888,7 @@ case "${1:-open}" in
   logs)       cmd_logs ;;
   doctor)     cmd_doctor ;;
   alerts)     cmd_alerts "${2:-on}" ;;
+  backup)     cmd_backup "${2:-now}" ;;
   autostart)  cmd_autostart "${2:-on}" ;;
   uninstall)  cmd_uninstall ;;
   help|-h|--help) cmd_help ;;
