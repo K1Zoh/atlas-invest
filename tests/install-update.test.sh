@@ -58,6 +58,48 @@ make_fake_curl() {
   chmod +x "$bin_dir/curl"
 }
 
+# git de substitution : « clone » déballe le tarball de test dans la cible, ce
+# qui permet d'exercer le chemin « machine neuve » sans accès réseau.
+make_fake_git() {
+  local bin_dir="$1"
+  mkdir -p "$bin_dir"
+  printf '%s\n' \
+    '#!/bin/bash' \
+    'case "$1" in' \
+    '  --version) echo "git version 0.0-fake" ;;' \
+    '  clone)' \
+    '    target="${@: -1}"' \
+    '    mkdir -p "$target"' \
+    '    tar -xzf "$ATLAS_TEST_DOWNLOAD" -C "$target" --strip-components=1' \
+    '    ;;' \
+    'esac' \
+    'exit 0' \
+    > "$bin_dir/git"
+  chmod +x "$bin_dir/git"
+}
+
+# Plist minimal de l'agent serveur, tel que write_plist le produit.
+write_server_plist() {
+  local plist="$1" workdir="$2"
+  mkdir -p "$(dirname "$plist")"
+  printf '%s\n' \
+    '<?xml version="1.0" encoding="UTF-8"?>' \
+    '<plist version="1.0"><dict>' \
+    '  <key>Label</key><string>local.atlas.server</string>' \
+    "  <key>WorkingDirectory</key><string>$workdir</string>" \
+    '</dict></plist>' \
+    > "$plist"
+}
+
+# Squelette d'installation reconnaissable par looks_like_install.
+make_install_skeleton() {
+  local dir="$1"
+  mkdir -p "$dir/atlas"
+  printf '{}\n' > "$dir/atlas/package.json"
+  printf '#!/bin/bash\nexit 0\n' > "$dir/atlas.sh"
+  chmod +x "$dir/atlas.sh"
+}
+
 test_bootstrap_refreshes_archive_install() {
   local install_dir="$TEST_ROOT/existing-install"
   local fake_bin="$TEST_ROOT/bootstrap-bin"
@@ -75,6 +117,7 @@ test_bootstrap_refreshes_archive_install() {
   chmod +x "$install_dir/atlas.sh"
 
   make_fake_curl "$fake_bin"
+  make_fake_git "$fake_bin"
 
   ATLAS_DIR="$install_dir" \
   ATLAS_INSTALL_MODE=update-local \
@@ -118,6 +161,7 @@ test_atlas_update_bootstraps_archive_install() {
     > "$remote_installer"
   chmod +x "$remote_installer"
   make_fake_curl "$fake_bin"
+  make_fake_git "$fake_bin"
 
   HOME="$TEST_ROOT/home" \
   ATLAS_HOME="$atlas_home" \
@@ -153,6 +197,7 @@ test_update_local_syncs_dependencies() {
     > "$atlas_home/node/bin/npm"
   chmod +x "$atlas_home/node/bin/node" "$atlas_home/node/bin/npm"
   make_fake_curl "$fake_bin"
+  make_fake_git "$fake_bin"
 
   HOME="$TEST_ROOT/home" \
   ATLAS_HOME="$atlas_home" \
@@ -164,9 +209,83 @@ test_update_local_syncs_dependencies() {
   assert_file_has_line "$npm_log" "install --no-audit --no-fund"
 }
 
+test_installer_adopts_running_install() {
+  local live_dir="$TEST_ROOT/live-install"
+  local fake_home="$TEST_ROOT/adopt-home"
+  local fake_bin="$TEST_ROOT/adopt-bin"
+
+  make_install_skeleton "$live_dir"
+  write_server_plist \
+    "$fake_home/Library/LaunchAgents/local.atlas.server.plist" "$live_dir/atlas"
+  make_fake_curl "$fake_bin"
+  make_fake_git "$fake_bin"
+
+  # Aucun ATLAS_DIR : sans détection, la cible serait $HOME/Atlas.
+  HOME="$fake_home" \
+  ATLAS_TEST_DOWNLOAD="$TEST_ROOT/release.tar.gz" \
+  ATLAS_TEST_RESULT="$TEST_ROOT/adopt-result" \
+  PATH="$fake_bin:/bin:/usr/bin" \
+    /bin/bash "$PROJECT_DIR/install.sh" >/dev/null
+
+  assert_file_contains "$live_dir/atlas/version.txt" "new"
+  [ ! -d "$fake_home/Atlas" ] \
+    || fail "l'installeur ne doit pas créer un second dossier quand une install est active"
+  assert_file_contains "$fake_home/.atlas/install-path" "$live_dir"
+}
+
+test_explicit_atlas_dir_wins_over_detection() {
+  local live_dir="$TEST_ROOT/live-install-2"
+  local forced_dir="$TEST_ROOT/forced-install"
+  local fake_home="$TEST_ROOT/forced-home"
+  local fake_bin="$TEST_ROOT/forced-bin"
+
+  make_install_skeleton "$live_dir"
+  mkdir -p "$forced_dir"
+  write_server_plist \
+    "$fake_home/Library/LaunchAgents/local.atlas.server.plist" "$live_dir/atlas"
+  make_fake_curl "$fake_bin"
+  make_fake_git "$fake_bin"
+
+  HOME="$fake_home" \
+  ATLAS_DIR="$forced_dir" \
+  ATLAS_TEST_DOWNLOAD="$TEST_ROOT/release.tar.gz" \
+  ATLAS_TEST_RESULT="$TEST_ROOT/forced-result" \
+  PATH="$fake_bin:/bin:/usr/bin" \
+    /bin/bash "$PROJECT_DIR/install.sh" >/dev/null
+
+  assert_file_contains "$forced_dir/atlas/version.txt" "new"
+  [ ! -f "$live_dir/atlas/version.txt" ] \
+    || fail "ATLAS_DIR explicite doit l'emporter sur la détection"
+}
+
+test_fresh_machine_installs_to_default_quietly() {
+  local fake_home="$TEST_ROOT/fresh-home"
+  local fake_bin="$TEST_ROOT/fresh-bin"
+  local output="$TEST_ROOT/fresh-output"
+
+  mkdir -p "$fake_home"
+  make_fake_curl "$fake_bin"
+  make_fake_git "$fake_bin"
+
+  HOME="$fake_home" \
+  ATLAS_TEST_DOWNLOAD="$TEST_ROOT/release.tar.gz" \
+  ATLAS_TEST_RESULT="$TEST_ROOT/fresh-result" \
+  PATH="$fake_bin:/bin:/usr/bin" \
+    /bin/bash "$PROJECT_DIR/install.sh" > "$output" 2>&1
+
+  assert_file_contains "$fake_home/Atlas/atlas/version.txt" "new"
+  if grep -q "Installation existante" "$output"; then
+    fail "aucune détection ne doit être annoncée sur une machine neuve"
+  fi
+  assert_file_contains "$fake_home/.atlas/install-path" "$fake_home/Atlas"
+}
+
 make_release_tarball
 test_bootstrap_refreshes_archive_install
 test_atlas_update_bootstraps_archive_install
 test_update_local_syncs_dependencies
+test_installer_adopts_running_install
+test_explicit_atlas_dir_wins_over_detection
+test_fresh_machine_installs_to_default_quietly
 
 printf 'PASS: archive installation and update flows\n'
