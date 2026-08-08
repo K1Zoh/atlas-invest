@@ -15,13 +15,21 @@ async function loadBackups(dir: string) {
   return import("./backups");
 }
 
-function makeBackup(dir: string, name: string, rows: number): void {
+function makeBackup(dir: string, name: string, rows: number, wal = false): void {
   fs.mkdirSync(dir, { recursive: true });
   const db = new Database(path.join(dir, name));
+  if (wal) db.pragma("journal_mode = WAL");
   db.exec("CREATE TABLE transactions (id INTEGER PRIMARY KEY, ticker TEXT)");
   const insert = db.prepare("INSERT INTO transactions (ticker) VALUES (?)");
   for (let i = 0; i < rows; i += 1) insert.run(`T${i}`);
   db.close();
+  if (wal) {
+    // do_backup produit des sauvegardes en mode WAL, mais sans sidecars sur
+    // disque une fois refermées : on reproduit cet état de départ.
+    for (const ext of ["-wal", "-shm"]) {
+      fs.rmSync(path.join(dir, name + ext), { force: true });
+    }
+  }
 }
 
 describe("listBackups", () => {
@@ -58,6 +66,20 @@ describe("listBackups", () => {
 
     const { listBackups } = await loadBackups(dir);
     expect(listBackups().map((b) => b.file)).toEqual(["atlas-20260101-120000-manuel.db"]);
+
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("ne laisse aucun -wal/-shm derrière elle", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "atlas-bk8-"));
+    makeBackup(dir, "atlas-20260101-120000-manuel.db", 3, true);
+
+    const { listBackups } = await loadBackups(dir);
+    expect(listBackups()[0].transactions).toBe(3);
+
+    // Lire une base WAL, même en lecture seule, crée ses sidecars. Sans purge,
+    // une paire s'accumulerait par sauvegarde, indéfiniment.
+    expect(fs.readdirSync(dir).filter((f) => /-(wal|shm)$/.test(f))).toEqual([]);
 
     fs.rmSync(dir, { recursive: true, force: true });
   });

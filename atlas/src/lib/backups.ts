@@ -36,6 +36,17 @@ function countTransactions(file: string): number | null {
     }
   } catch {
     return null;
+  } finally {
+    // Les sauvegardes sont en mode WAL : les ouvrir, même en lecture seule,
+    // crée leurs sidecars. Sans cette purge, une paire s'accumulerait par
+    // sauvegarde à chaque affichage de la liste.
+    for (const ext of ["-wal", "-shm"]) {
+      try {
+        fs.rmSync(file + ext, { force: true });
+      } catch {
+        // Un sidecar qu'on ne peut pas retirer n'empêche pas de lister.
+      }
+    }
   }
 }
 
