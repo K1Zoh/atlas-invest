@@ -780,6 +780,42 @@ cmd_backup() {
   esac
 }
 
+cmd_restore() {
+  local wanted="${1:-latest}" source resume=0
+
+  case "$wanted" in
+    latest) source="$(ls -1t "$BACKUP_DIR"/atlas-*.db 2>/dev/null | head -1)" ;;
+    /*)     source="$wanted" ;;
+    *)      source="$BACKUP_DIR/$wanted" ;;
+  esac
+
+  [ -n "$source" ] && [ -f "$source" ] \
+    || die "Sauvegarde introuvable : $wanted" \
+           "Lance « $0 backup list » pour voir les sauvegardes disponibles."
+
+  command -v sqlite3 >/dev/null 2>&1 || die "sqlite3 est nécessaire pour restaurer."
+  [ "$(sqlite3 "$source" 'PRAGMA integrity_check;' 2>/dev/null)" = "ok" ] \
+    || die "Cette sauvegarde est illisible : $source"
+
+  step "Restauration depuis $(basename "$source")"
+
+  # On ne relance que ce qui tournait. Mais si le démarrage automatique est
+  # actif, l'agent doit repartir : le laisser déchargé le condamnerait jusqu'à
+  # la prochaine ouverture de session.
+  if is_running || autostart_enabled; then resume=1; fi
+  if [ "$resume" -eq 1 ]; then cmd_stop; fi
+
+  do_backup avant-restauration || warn "État courant non sauvegardé"
+
+  mkdir -p "$DATA_DIR"
+  cp "$source" "$DB_FILE"
+  # Un WAL périmé se réappliquerait par-dessus la base restaurée.
+  rm -f "$DB_FILE-wal" "$DB_FILE-shm"
+  ok "Base restaurée"
+
+  if [ "$resume" -eq 1 ]; then cmd_start; fi
+}
+
 # ── Installation, mise à jour, désinstallation ───────────────────────────────
 
 cmd_install() {
@@ -892,6 +928,7 @@ case "${1:-open}" in
   doctor)     cmd_doctor ;;
   alerts)     cmd_alerts "${2:-on}" ;;
   backup)     cmd_backup "${2:-now}" ;;
+  restore)    cmd_restore "${2:-latest}" ;;
   autostart)  cmd_autostart "${2:-on}" ;;
   uninstall)  cmd_uninstall ;;
   help|-h|--help) cmd_help ;;

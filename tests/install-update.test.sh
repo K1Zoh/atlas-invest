@@ -495,6 +495,58 @@ test_update_backs_up_first() {
     || fail "la sauvegarde pré-mise-à-jour doit contenir les données"
 }
 
+test_restore_replaces_database() {
+  local install_dir="$TEST_ROOT/rst-install"
+  local atlas_home="$TEST_ROOT/rst-home"
+  local data_dir="$TEST_ROOT/rst-data"
+  local fake_bin="$TEST_ROOT/rst-bin"
+
+  make_runnable_install "$install_dir"
+  make_fake_launchctl "$fake_bin"
+  seed_test_db "$data_dir/atlas.db" 2
+
+  # Sauvegarde de l'état à 2 lignes.
+  HOME="$TEST_ROOT/home" ATLAS_HOME="$atlas_home" ATLAS_DATA_DIR="$data_dir" \
+  PATH="$fake_bin:/bin:/usr/bin" \
+    /bin/bash "$install_dir/atlas.sh" backup >/dev/null
+
+  # La base évolue, et un WAL périmé traîne.
+  sqlite3 "$data_dir/atlas.db" "INSERT INTO transactions (ticker) VALUES ('APRES');"
+  [ "$(sqlite3 "$data_dir/atlas.db" 'SELECT COUNT(*) FROM transactions;')" = "3" ] \
+    || fail "préparation du test invalide"
+  printf 'périmé\n' > "$data_dir/atlas.db-wal"
+
+  HOME="$TEST_ROOT/home" ATLAS_HOME="$atlas_home" ATLAS_DATA_DIR="$data_dir" \
+  PATH="$fake_bin:/bin:/usr/bin" \
+    /bin/bash "$install_dir/atlas.sh" restore latest >/dev/null
+
+  [ "$(sqlite3 "$data_dir/atlas.db" 'SELECT COUNT(*) FROM transactions;')" = "2" ] \
+    || fail "la restauration doit ramener l'état sauvegardé"
+  [ ! -f "$data_dir/atlas.db-wal" ] \
+    || fail "un -wal périmé doit être supprimé à la restauration"
+  find "$atlas_home/backups" -name 'atlas-*-avant-restauration.db' | grep -q . \
+    || fail "l'état courant doit être sauvegardé avant d'être écrasé"
+}
+
+test_restore_refuses_unknown_backup() {
+  local install_dir="$TEST_ROOT/rst2-install"
+  local atlas_home="$TEST_ROOT/rst2-home"
+  local data_dir="$TEST_ROOT/rst2-data"
+  local fake_bin="$TEST_ROOT/rst2-bin"
+
+  make_runnable_install "$install_dir"
+  make_fake_launchctl "$fake_bin"
+  seed_test_db "$data_dir/atlas.db" 5
+
+  HOME="$TEST_ROOT/home" ATLAS_HOME="$atlas_home" ATLAS_DATA_DIR="$data_dir" \
+  PATH="$fake_bin:/bin:/usr/bin" \
+    /bin/bash "$install_dir/atlas.sh" restore inexistante.db >/dev/null 2>&1 \
+    && fail "restaurer une sauvegarde inconnue doit échouer"
+
+  [ "$(sqlite3 "$data_dir/atlas.db" 'SELECT COUNT(*) FROM transactions;')" = "5" ] \
+    || fail "un échec de restauration ne doit pas toucher à la base"
+}
+
 make_release_tarball
 test_bootstrap_refreshes_archive_install
 test_atlas_update_bootstraps_archive_install
@@ -509,5 +561,7 @@ test_backup_rotation_caps_the_directory
 test_backup_failure_preserves_existing_backups
 test_backup_on_writes_daily_agent
 test_update_backs_up_first
+test_restore_replaces_database
+test_restore_refuses_unknown_backup
 
 printf 'PASS: archive installation and update flows\n'
