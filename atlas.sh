@@ -13,7 +13,7 @@
 #   ./atlas.sh doctor       diagnostic
 #   ./atlas.sh alerts on    alertes de prix même app fermée (off pour couper)
 #   ./atlas.sh autostart on démarrage automatique à l'ouverture de session
-#   ./atlas.sh backup       sauvegarde tout de suite (list, on, off)
+#   ./atlas.sh backup       sauvegarde tout de suite (list, on, off, icloud-off)
 #   ./atlas.sh restore      remet la dernière sauvegarde (ou un fichier précis)
 #   ./atlas.sh uninstall    retire icône, services et Node local (garde tes données)
 #
@@ -39,6 +39,15 @@ DATA_DIR="${ATLAS_DATA_DIR:-$ATLAS_HOME/data}"
 DB_FILE="$DATA_DIR/atlas.db"
 BACKUP_DIR="${ATLAS_BACKUP_DIR:-$ATLAS_HOME/backups}"
 ICLOUD_BACKUP_DIR="$HOME/Library/Mobile Documents/com~apple~CloudDocs/Atlas"
+# Une copie hors machine protège d'une panne de disque, mais fait sortir tes
+# positions de l'ordinateur. Deux façons de refuser : ATLAS_ICLOUD_BACKUP=0 pour
+# une commande, ou le fichier marqueur pour de bon.
+#
+# Le marqueur est indispensable : l'agent de sauvegarde quotidienne ne reçoit
+# que ATLAS_PORT dans son environnement, une variable ne l'atteindrait jamais.
+ICLOUD_OPT_OUT="$ATLAS_HOME/no-icloud"
+ICLOUD_BACKUP="${ATLAS_ICLOUD_BACKUP:-1}"
+[ -f "$ICLOUD_OPT_OUT" ] && ICLOUD_BACKUP=0
 # Surchargeable pour que les tests vérifient la rotation sans écrire 31 fichiers.
 BACKUP_KEEP="${ATLAS_BACKUP_KEEP:-30}"
 
@@ -745,8 +754,8 @@ do_backup() {
   mv "$staging" "$dest"
   ok "Sauvegarde : $dest"
 
-  # iCloud si présent, silence sinon — jamais d'erreur pour ça.
-  if [ -d "$(dirname "$ICLOUD_BACKUP_DIR")" ]; then
+  # iCloud si présent et non refusé, silence sinon — jamais d'erreur pour ça.
+  if [ "$ICLOUD_BACKUP" != "0" ] && [ -d "$(dirname "$ICLOUD_BACKUP_DIR")" ]; then
     mkdir -p "$ICLOUD_BACKUP_DIR" 2>/dev/null \
       && cp "$dest" "$ICLOUD_BACKUP_DIR/" 2>/dev/null \
       && info "Copie iCloud effectuée"
@@ -785,7 +794,17 @@ cmd_backup() {
       unload_agent "$BACKUP_LABEL" "$BACKUP_PLIST"
       ok "Sauvegarde quotidienne désactivée"
       ;;
-    *) die "Usage : $0 backup [now|list|on|off]" ;;
+    icloud-off)
+      mkdir -p "$ATLAS_HOME"
+      : > "$ICLOUD_OPT_OUT"
+      ok "Les sauvegardes ne quitteront plus cette machine"
+      info "Les copies déjà présentes dans iCloud ne sont pas supprimées"
+      ;;
+    icloud-on)
+      rm -f "$ICLOUD_OPT_OUT"
+      ok "Copie iCloud réactivée (si iCloud Drive est configuré)"
+      ;;
+    *) die "Usage : $0 backup [now|list|on|off|icloud-on|icloud-off]" ;;
   esac
 }
 

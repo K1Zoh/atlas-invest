@@ -453,6 +453,79 @@ test_backup_failure_preserves_existing_backups() {
   fi
 }
 
+test_backup_copies_to_icloud_when_present() {
+  local atlas_home="$TEST_ROOT/icl-home"
+  local fake_home="$TEST_ROOT/icl-fakehome"
+  local data_dir="$TEST_ROOT/icl-data"
+  local install_dir="$TEST_ROOT/icl-install"
+  local fake_bin="$TEST_ROOT/icl-bin"
+  local icloud="$fake_home/Library/Mobile Documents/com~apple~CloudDocs"
+
+  make_runnable_install "$install_dir"
+  make_fake_launchctl "$fake_bin"
+  seed_test_db "$data_dir/atlas.db" 2
+  mkdir -p "$icloud"
+
+  HOME="$fake_home" ATLAS_HOME="$atlas_home" ATLAS_DATA_DIR="$data_dir" \
+  PATH="$fake_bin:/bin:/usr/bin" \
+    /bin/bash "$install_dir/atlas.sh" backup >/dev/null
+
+  find "$icloud/Atlas" -name 'atlas-*.db' | grep -q . \
+    || fail "la sauvegarde doit être copiée dans iCloud quand il est présent"
+}
+
+test_icloud_backup_can_be_disabled() {
+  local atlas_home="$TEST_ROOT/icl2-home"
+  local fake_home="$TEST_ROOT/icl2-fakehome"
+  local data_dir="$TEST_ROOT/icl2-data"
+  local install_dir="$TEST_ROOT/icl2-install"
+  local fake_bin="$TEST_ROOT/icl2-bin"
+  local icloud="$fake_home/Library/Mobile Documents/com~apple~CloudDocs"
+
+  make_runnable_install "$install_dir"
+  make_fake_launchctl "$fake_bin"
+  seed_test_db "$data_dir/atlas.db" 2
+  mkdir -p "$icloud"
+
+  HOME="$fake_home" ATLAS_HOME="$atlas_home" ATLAS_DATA_DIR="$data_dir" \
+  ATLAS_ICLOUD_BACKUP=0 \
+  PATH="$fake_bin:/bin:/usr/bin" \
+    /bin/bash "$install_dir/atlas.sh" backup >/dev/null
+
+  find "$atlas_home/backups" -name 'atlas-*.db' | grep -q . \
+    || fail "la sauvegarde locale doit quand même être créée"
+  [ ! -d "$icloud/Atlas" ] \
+    || fail "ATLAS_ICLOUD_BACKUP=0 ne doit rien écrire dans iCloud"
+}
+
+test_icloud_opt_out_marker_survives_the_agent() {
+  local atlas_home="$TEST_ROOT/icl3-home"
+  local fake_home="$TEST_ROOT/icl3-fakehome"
+  local data_dir="$TEST_ROOT/icl3-data"
+  local install_dir="$TEST_ROOT/icl3-install"
+  local fake_bin="$TEST_ROOT/icl3-bin"
+  local icloud="$fake_home/Library/Mobile Documents/com~apple~CloudDocs"
+
+  make_runnable_install "$install_dir"
+  make_fake_launchctl "$fake_bin"
+  seed_test_db "$data_dir/atlas.db" 2
+  mkdir -p "$icloud"
+
+  HOME="$fake_home" ATLAS_HOME="$atlas_home" PATH="$fake_bin:/bin:/usr/bin" \
+    /bin/bash "$install_dir/atlas.sh" backup icloud-off >/dev/null
+
+  # L'agent quotidien ne reçoit que ATLAS_PORT : seul le marqueur peut
+  # l'empêcher de copier. On reproduit son environnement, sans la variable.
+  HOME="$fake_home" ATLAS_HOME="$atlas_home" ATLAS_DATA_DIR="$data_dir" \
+  PATH="$fake_bin:/bin:/usr/bin" \
+    /bin/bash "$install_dir/atlas.sh" backup >/dev/null
+
+  find "$atlas_home/backups" -name 'atlas-*.db' | grep -q . \
+    || fail "la sauvegarde locale doit quand même être créée"
+  [ ! -d "$icloud/Atlas" ] \
+    || fail "le marqueur no-icloud doit tenir même sans variable d'environnement"
+}
+
 test_backup_on_writes_daily_agent() {
   local atlas_home="$TEST_ROOT/bk6-home"
   local fake_home="$TEST_ROOT/bk6-fakehome"
@@ -575,6 +648,9 @@ test_backup_skips_identical_snapshot
 test_backup_without_database_is_silent_success
 test_backup_rotation_caps_the_directory
 test_backup_failure_preserves_existing_backups
+test_backup_copies_to_icloud_when_present
+test_icloud_backup_can_be_disabled
+test_icloud_opt_out_marker_survives_the_agent
 test_backup_on_writes_daily_agent
 test_update_backs_up_first
 test_restore_replaces_database
